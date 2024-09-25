@@ -9,10 +9,6 @@ from scipy.fft import fft, ifft, rfft, irfft
 from scipy.stats import binned_statistic
 from scipy import integrate
 
-from ipywidgets import interact, interactive, fixed, interact_manual
-import ipywidgets as widgets
-# %matplotlib inline
-
 from numpy.polynomial.hermite import hermgauss
 import argparse  # Added for argument parsing
 
