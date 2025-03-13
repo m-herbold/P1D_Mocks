@@ -46,11 +46,6 @@ default_v_array = np.arange(default_numvpoints) * default_dv
 k_arr  = 2. * np.pi * np.fft.rfftfreq(
     2 * default_numvpoints - 1, d=default_dv) + 1e-12 
 
-flux_fitting_z_array = np.linspace(1.8, 5.0, 500)
-
-
-#######################################
-
 
 def read_data(filename, expect_two_columns=False):
     """Reads data from a file (.txt or .fits). Returns a 1D or 2D array."""
@@ -145,20 +140,13 @@ def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0=3):
     return np.exp(-e2 * e1)
 
 
-def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0, degree = gh_degree):
-    gausshermite_xi, gausshermite_wi = np.polynomial.hermite.hermgauss(degree)
-
-    XIXI, ZZ = np.meshgrid(gausshermite_xi, z)
+def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
+    XIXI, ZZ = np.meshgrid(gausshermite_xi_deg, z)
 
     Y = Flux_d_z(XIXI, ZZ, tau0, tau1, nu, sigma2, z0)
-    result = np.dot(Y, gausshermite_wi)
+    result = np.dot(Y, gausshermite_wi_deg)
 
     return result / np.sqrt(np.pi)
-
-
-def lognGeneratingPower(k, n=0.5, alpha=0.26, gamma=1.8, k1=0.04):
-    q0 = np.log(k / 0.001 + 1e-15)
-    return np.exp(n * q0 - alpha * q0**2) / (1. + (k / k1)**gamma) * np.exp(-(k / 0.2)**2 / 2)
 
 
 def process_power_file(power_file): 
@@ -174,6 +162,7 @@ def process_power_file(power_file):
             P1D_array = data[:, 2] 
 
             grouped_data = {}
+            # Naim: I don't think this code works
             for i, z in enumerate(zlist):
                 if z not in grouped_data:
                     grouped_data[z] = {'k': [], 'P1D': []}
@@ -187,6 +176,7 @@ def process_power_file(power_file):
     else:
         print("\nNo (P,k,z) file provided, using default model (DESI EDR)\n")
         return {}, np.array([])  # Return empty dict and array
+
 
 def compute_velocity_properties(k_array):
     """
@@ -220,7 +210,78 @@ def compute_velocity_properties(k_array):
     return dv, numvpoints
 
 
-#######################################
+def plot_mean_flux(z, target_flux, bestfit_values, flux_model)
+    print('Saving: Mean_Flux_Fit.png')
+    tau0, tau1, nu, sigma2 = mini.values
+    plt.figure()
+    plt.plot(
+        z, lognMeanFluxGH(z, *bestfit_values, z0), color='tab:blue', ls='-',
+        label='Best Fit')
+    plt.plot(z, target_flux, color='black', ls='--',
+             label=f'Model: {flux_model}')
+    plt.xlabel('z')
+    plt.ylabel(r'$\bar F(z) $')
+    plt.legend(loc='upper right')
+    txt=f'tau0 = {tau0}\ntau1 = {tau1}\nnu = {nu}\nsigma2 = {sigma2}'
+    plt.text(0.02, 0.1, txt, ha='left', va='center', fontsize=14,
+             transform=plt.gca().transAxes)
+    plt.tight_layout()
+    plt.savefig('Mean_Flux_Fit.png')
+
+
+def fit_mean_flux(flux_file, saveplot, rtol=1e-5, atol=1e-8):
+    if flux_file:
+        print('\n(F,z) file provided, using as target mean flux')
+        try:
+            flux_z_array, flux_array = read_data(
+                flux_file, expect_two_columns=True)
+            flux_model = 'User Input'
+        except Exception as e:
+            print(f"Error reading flux file: {e}")
+            return
+    else:
+        print("No file provided, using default model (Turner et al., 2024)")
+        flux_fitting_z_array = np.linspace(1.8, 5.0, 500)
+        flux_array = turner24_mf(flux_fitting_z_array)
+        flux_z_array = flux_fitting_z_array
+        flux_model = 'Turner et al., 2024'
+
+    if len(flux_z_array) != len(flux_array):
+        raise Exception(
+            f"Error: Mismatch - z array has {len(flux_z_array)} elements, "
+            f"but flux array has {len(flux_array)} elements.")
+
+    print("Data successfully assigned.")
+
+    # FIT FOR MEAN FLUX (not sure if I need this inside the z-loop or not)
+    print('###  Fitting Mean Flux Parameters  ###\n')
+
+    Err_flux_fit = flux_array * rtol + atol
+
+    def flux_fit_cost(tau0, tau1, nu, sigma2):
+        ffit = lognMeanFluxGH(flux_z_array, tau0, tau1, nu, sigma2)
+        d = (flux_array - ffit) / Err_flux_fit
+        return d.dot(d)
+
+    # Set initial guesses for fitting parameters
+    tau0_0, tau1_0, nu_0, sigma2_0 = 0.55, 5.1, 2.82, 2.0
+
+    mini = Minuit(flux_fit_cost, tau0_0, tau1_0, nu_0, sigma2_0)
+    mini.errordef = Minuit.LEAST_SQUARES
+    mini.migrad()
+
+    # assign new values for fitting parameters
+    tau0, tau1, nu, sigma2 = mini.values
+
+    print('tau0 = ', str(tau0))
+    print('tau1 = ', str(tau1))
+    print('nu = ', str(nu))
+    print('sigma2 = ', str(sigma2))
+
+    if saveplot:
+        plot_mean_flux(flux_z_array, flux_array, mini.values, flux_model)
+
+    return tau0, tau1, nu, sigma2
 
 
 def main():
@@ -250,10 +311,6 @@ def main():
         print(f"Error reading redshift file: {e}")
         return
 
-
-    #############################
-
-
     # Process power spectrum data (optional argument)
     grouped_data, zlist = process_power_file(args.power_file) 
 
@@ -262,7 +319,7 @@ def main():
         k_array = k_arr
         zlist = z_target
         P1D_array = PD13Lorentz_DESI_EDR(z_target)
-        
+
         # Create dv and numvpoints arrays filled with default values
         dv_array = np.full(len(zlist), default_dv)
         numvpoints_array = np.full(len(zlist), default_numvpoints)
@@ -271,8 +328,7 @@ def main():
         for i, z in enumerate(zlist):
             if len(k_array) != len(P1D_array[i]):
                 print(f"Error: Mismatch - k array has {len(k_array)} elements, but P1D array has {len(P1D_array[i])} elements.")
-                return
-                
+                return  
     else: 
         # process grouped data from file (if applicable)
         print('\n(P,k,z) file provided, using as target P1D\n')
@@ -301,70 +357,16 @@ def main():
             else:
                 print(f"Warning: No data found for redshift {z}")
                 sys.exit(1)
-                
+
         P1D_array = np.array(P1D_array, dtype=object)
         k_array = np.array(k_array, dtype=object)
         dv_array = np.array(dv_array)
         numvpoints_array = np.array(numvpoints_array)
 
-
-    ###################################
-
-        
-    # Process flux data  (optional)
-    if args.flux_file:
-        print('\n(F,z) file provided, using as target mean flux')
-        try:
-            flux_z_array, flux_array = read_data(args.flux_file, expect_two_columns=True)
-            flux_model = 'User Input'
-        except Exception as e:
-            print(f"Error reading flux file: {e}")
-            return
-    else:
-        print(f"No (F,z) file provided, using default model (Turner et al., 2024)\n")
-        flux_array = turner24_mf(flux_fitting_z_array)
-        flux_z_array = flux_fitting_z_array
-        flux_model = 'Turner et al., 2024'
-
-
-    if len(flux_z_array) != len(flux_array):
-        print(f"Error: Mismatch - z array has {len(flux_z_array)} elements, but flux array has {len(flux_array)} elements.")
-        return
-
-    print("\nData successfully assigned.")
-    
-    
-    # FIT FOR MEAN FLUX (not sure if I need this inside the z-loop or not)
-    print('\n###  Fitting Mean Flux Parameters  ###\n')
-    
-    flux_fit_precision = 1e-5
-    Err_flux_fit = flux_array * flux_fit_precision + 1e-8
-
-    def flux_fit_cost(tau0, tau1, nu, sigma2):
-        d = (flux_array - lognMeanFluxGH(flux_z_array, tau0, tau1, nu, sigma2, z0)) / Err_flux_fit
-        return d.dot(d)
-    
-    # Set initial guesses for fitting parameters
-    tau0_0, tau1_0, nu_0, sigma2_0 = 0.55, 5.1, 2.82, 2.0
-    
-    mini = Minuit(flux_fit_cost, tau0_0, tau1_0, nu_0, sigma2_0)
-    mini.errordef = Minuit.LEAST_SQUARES
-    mini.migrad()
-
-    # assign new values for fitting parameters
-    tau0, tau1, nu, sigma2 = mini.values
-
-    print('tau0 = '+str(tau0))
-    print('tau1 = '+str(tau1))
-    print('nu = '+str(nu))
-    print('sigma2 = '+str(sigma2))
-
-
-
-    #################################################################
+    tau0, tau1, nu, sigma2 = fit_mean_flux(args.flux_file, saveplot)
 
     # now define these functions with values from mean flux fit!
-    
+
     def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
         """
         Arguments
@@ -422,23 +424,6 @@ def main():
         """
         xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
         return xi_f_calculated - xi_f_target
-
-    
-    ##############################################
-    if args.plot_mean_flux:
-        print('Saving: Mean_Flux_Fit.png')
-        plt.figure()
-        plt.plot(flux_z_array, lognMeanFluxGH(flux_z_array, *mini.values, z0), color='tab:blue', ls='-', label='Best Fit', lw='6', alpha = 0.5)
-        plt.plot(flux_z_array, flux_array, color='black', ls='--', label=f'Model: {flux_model}')#Turner et al. 2024')
-        plt.title('Mean Flux')
-        plt.xlabel('z')
-        plt.ylabel(r'$\bar F(z) $')
-        plt.legend(loc='upper right')
-        txt=f'tau0 = {tau0}\ntau1 = {tau1}\nnu = {nu}\nsigma2 = {sigma2}'
-        plt.text(0.02, 0.1, txt, ha='left', va='center', fontsize=14, transform=plt.gca().transAxes)
-        plt.tight_layout()
-        plt.savefig('Mean_Flux_Fit')
-    ##############################################
 
     
     # FITTING POWER 
