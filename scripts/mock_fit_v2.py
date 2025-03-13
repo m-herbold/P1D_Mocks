@@ -10,26 +10,20 @@ from scipy.optimize import fsolve
 from scipy.interpolate import CubicSpline
 from scipy.interpolate import interp1d
 from astropy.io import fits
-from scipy.optimize import curve_fit
-from astropy.io import fits
 
 import argparse
 import os
 import sys
 import time
 
-
 #######################################
 
-plt.rcParams['figure.figsize'] = (8, 6)   
-plt.rcParams['font.size'] = 16         
-plt.rcParams['axes.titlesize'] = 16     
-plt.rcParams['legend.fontsize'] = 14    
-plt.rcParams['savefig.dpi'] = 100       
-plt.rcParams['axes.labelsize'] = 16      
-
-#######################################
-
+plt.rcParams['figure.figsize'] = (8, 6)
+plt.rcParams['font.size'] = 16
+plt.rcParams['axes.titlesize'] = 16
+plt.rcParams['legend.fontsize'] = 14
+plt.rcParams['savefig.dpi'] = 150
+plt.rcParams['axes.labelsize'] = 16
 
 DESI_EDR_PARAMETERS = (
     7.63089e-02, -2.52054e+00, -1.27968e-01,
@@ -48,7 +42,9 @@ WW1, WW2 = np.meshgrid(gausshermite_wi_deg, gausshermite_wi_deg, indexing='ij')
 default_numvpoints = 2**12
 default_dv = 12
 default_v_array = np.arange(default_numvpoints) * default_dv
-k_arr  = 2. * np.pi * np.fft.rfftfreq((2 * default_numvpoints)-1, d=default_dv) + 1e-12 
+# This looks weird: Naim
+k_arr  = 2. * np.pi * np.fft.rfftfreq(
+    2 * default_numvpoints - 1, d=default_dv) + 1e-12 
 
 flux_fitting_z_array = np.linspace(1.8, 5.0, 500)
 
@@ -95,7 +91,7 @@ def parse_redshift_target(input_value):
 def turner24_mf(z):
     tau_0 = -2.46e-3
     gamma = 3.62
-    return np.exp(tau_0 * (1 + z)**gamma)    
+    return np.exp(tau_0 * (1 + z)**gamma)
 
 
 def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
@@ -110,12 +106,12 @@ def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
         result *= np.power(q0, beta * np.log(x0)) * np.power(x0, B)
 
     return result
-    
+
 
 def PD13Lorentz_DESI_EDR(zlist):
     # Start with an empty array the size / shape of input k and z arrays
     p1d_edr_fit = np.empty((zlist.size, k_arr.size))
-    
+
     # Evaluate P1D for each (k,z), using DESI EDR Param. def. above
     for i, z in enumerate(zlist):
         p1d_edr_fit[i] = evaluatePD13Lorentz((k_arr, z), *DESI_EDR_PARAMETERS)
@@ -254,10 +250,10 @@ def main():
         print(f"Error reading redshift file: {e}")
         return
 
-    
+
     #############################
 
-    
+
     # Process power spectrum data (optional argument)
     grouped_data, zlist = process_power_file(args.power_file) 
 
