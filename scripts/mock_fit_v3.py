@@ -507,7 +507,7 @@ def main():
                 return
     else: 
         # process grouped data from file (if applicable)
-        print('\n(P,k,z) file provided, using as target P1D\n')
+        print('\n(P,k,z) file provided, using as target P1D')
     
         P1D_array = []  
         k_array = []  
@@ -619,7 +619,7 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:new_size] / dv
 
         # downsample xi_f (logarithmically)
-        downsample_size = 2**5
+        downsample_size = 2**7
 
         velocity_abs = np.abs(new_v_array[1:])  
         log_v_min, log_v_max = np.log10(1 + velocity_abs.min()), np.log10(1 + velocity_abs.max())
