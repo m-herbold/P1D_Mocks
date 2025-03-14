@@ -234,6 +234,66 @@ def fit_mean_flux(flux_array, flux_z_array, z0):
     return mini.values
 
 
+def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
+    """
+    Arguments
+    ---------
+    z: float
+        Single redshift
+    tau0, tau1: float
+        Amplitude (tau0) and power (tau1) of optical depth
+    nu: float
+        Slope of growth (a(z) -> D(z))
+    xi_gauss: float
+        Single xi_g value from Gaussian random field
+    """
+    xi_sine = np.clip(xi_gauss / sigma2, -1, 1)
+    xi_cosine = np.sqrt(1 - xi_sine**2)
+    XI_VEC = np.array([xi_sine, xi_cosine])
+    
+    YY2_XI_VEC_WEIGHTED = np.dot(XI_VEC, np.array([YY1, YY2]).transpose(1, 0, 2))
+    
+    # Redshift-dependent computations
+    mean_flux_z = lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)
+    sigmaz = a2_z(z, nu / 2, z0) * np.sqrt(sigma2)
+    tempxz = x_of_z(z, tau0, tau1, nu, sigma2, z0)
+    delta1 = YY1 * sigmaz * 2 * np.sqrt(2)
+    delta2 = YY2_XI_VEC_WEIGHTED * sigmaz * 2 * np.sqrt(2)
+    
+    F1 = np.exp(-tempxz * np.exp(delta1))
+    F2 = np.exp(-tempxz * np.exp(delta2))
+    D1 = F1 / mean_flux_z - 1
+    D2 = F2 / mean_flux_z - 1
+    tempfunc = WW1 * WW2 * D1 * D2
+   
+    # Return a single xi_f scalar
+    xi_f = np.sum(tempfunc) / np.pi
+    return xi_f
+
+
+def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
+    """
+    Compute the difference between the target xi_f values and the xi_f values
+    calculated from xi_g using lognXiFfromXiG_pointwise.
+
+    Parameters
+    ----------
+    xi_g : array-like
+        Current guess for xi_g values.
+    z : float
+        Redshift at which xi_f is calculated.
+    xi_f_target : array-like
+        Target xi_f values, in this case, xif_edr_fit.
+ 
+    Returns
+    -------
+    array-like
+        Residuals between calculated and target xi_f.
+    """
+    xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
+    return xi_f_calculated - xi_f_target
+
+
 #######################################
 
 
@@ -373,9 +433,9 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     plt.figure()
     for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
                 plt.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
-    plt.loglog(k_array_input[w_k], p1d_input[w_k], color='tab:blue', 
+    plt.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', 
                        label=f'Model') 
-    plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k], 
+    plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
                        color='tab:orange', ls='--', label = f'Best Fit') 
     plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
     plt.ylabel(rf'$P(k)$   (z = {z})')
@@ -518,67 +578,7 @@ def main():
                        fit_mean_flux(flux_array, flux_z_array, z0), flux_model)
     ##############################################    
 
-    # now define these functions with values from mean flux fit above
-    def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
-        """
-        Arguments
-        ---------
-        z: float
-            Single redshift
-        tau0, tau1: float
-            Amplitude (tau0) and power (tau1) of optical depth
-        nu: float
-            Slope of growth (a(z) -> D(z))
-        xi_gauss: float
-            Single xi_g value from Gaussian random field
-        """
-        xi_sine = np.clip(xi_gauss / sigma2, -1, 1)
-        xi_cosine = np.sqrt(1 - xi_sine**2)
-        XI_VEC = np.array([xi_sine, xi_cosine])
-    
-        YY2_XI_VEC_WEIGHTED = np.dot(XI_VEC, np.array([YY1, YY2]).transpose(1, 0, 2))
-    
-        # Redshift-dependent computations
-        mean_flux_z = lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)
-        sigmaz = a2_z(z, nu / 2, z0) * np.sqrt(sigma2)
-        tempxz = x_of_z(z, tau0, tau1, nu, sigma2, z0)
-        delta1 = YY1 * sigmaz * 2 * np.sqrt(2)
-        delta2 = YY2_XI_VEC_WEIGHTED * sigmaz * 2 * np.sqrt(2)
-    
-        F1 = np.exp(-tempxz * np.exp(delta1))
-        F2 = np.exp(-tempxz * np.exp(delta2))
-        D1 = F1 / mean_flux_z - 1
-        D2 = F2 / mean_flux_z - 1
-        tempfunc = WW1 * WW2 * D1 * D2
-    
-        # Return a single xi_f scalar
-        xi_f = np.sum(tempfunc) / np.pi
-        return xi_f
-
-    def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
-        """
-        Compute the difference between the target xi_f values and the xi_f values
-        calculated from xi_g using lognXiFfromXiG_pointwise.
-    
-        Parameters
-        ----------
-        xi_g : array-like
-            Current guess for xi_g values.
-        z : float
-            Redshift at which xi_f is calculated.
-        xi_f_target : array-like
-            Target xi_f values, in this case, xif_edr_fit.
-    
-        Returns
-        -------
-        array-like
-            Residuals between calculated and target xi_f.
-        """
-        xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
-        return xi_f_calculated - xi_f_target
-
-    
-    # FITTING POWER 
+    ###  FIT POWER  ###
     print("\n\n###  Fitting Power  ###")
     
     for z in z_target:
@@ -635,7 +635,7 @@ def main():
             plot_target_xif(safe_z, new_v_array, xif_interp_fit, 
                             v_array_downsampled, xif_target_downsampled, dv)
         ##############################################
-        
+       
         # now solve for xi_G
         print('\n(Fitting xi_f)')
         print(f"N-Points:     {downsample_size}")
