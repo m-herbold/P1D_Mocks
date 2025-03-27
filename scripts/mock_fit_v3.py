@@ -418,45 +418,102 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
     plt.savefig(rf'{z}_xi_f_recovery.png')
 
 
+# def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr, 
+#                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
+#     print(rf'Saving: {z}_recovered_power.png')
+#     temp_k = k_array_input[w_k]
+#     temp_p = p1d_input[w_k]
+#     temp_e = np.full_like(temp_k, e_p1d[z_id])
+    
+#     log_k_values = np.log10(temp_k) 
+#     log_k_min = np.min(log_k_values)
+#     log_k_max = np.max(log_k_values)
+#     alpha_values = 0.05 + (1 - 0.2) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
+
+#     plt.figure()
+#     for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
+#                 plt.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
+#     plt.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', 
+#                        label=f'Model') 
+#     plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
+#                        color='tab:orange', ls='--', label = f'Best Fit') 
+#     plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
+#     plt.ylim(10e-2, mirrored_fit_power[w_fit_k].real.max() +10)
+#     plt.ylabel(rf'$P(k)$   (z = {z})')
+#     plt.xlabel(r'k $[km/s]^{-1}$')
+#     plt.legend(loc='lower left')
+#     plt.tight_layout()
+#     plt.savefig(rf'{z}_recovered_power.png')
+    
+#     print(rf'Saving: {z}_power_residual.png')
+#     plt.figure()
+#     plt.semilogx(k_array_input, delta_P_real, label = f"(Model - Best Fit) / Model")
+#     plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
+#     plt.xlim([10e-5,10e-2])
+#     plt.ylim(-delta_P_real.max(),delta_P_real.max())
+#     plt.xlabel(r'k $[km/s]^{-1}$')
+#     plt.ylabel(rf"$\Delta$ P / P   (z = {z})")
+#     plt.legend()
+#     plt.grid()
+#     plt.tight_layout()
+#     plt.savefig(rf'{z}_power_residual.png')   
+
+
+
+from matplotlib.gridspec import GridSpec
+
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr, 
                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
     print(rf'Saving: {z}_recovered_power.png')
+
     temp_k = k_array_input[w_k]
     temp_p = p1d_input[w_k]
     temp_e = np.full_like(temp_k, e_p1d[z_id])
-    
-    log_k_values = np.log10(temp_k) 
+
+    log_k_values = np.log10(temp_k)
     log_k_min = np.min(log_k_values)
     log_k_max = np.max(log_k_values)
-    alpha_values = 0.05 + (1 - 0.2) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
+    alpha_values = 0.02 + (1 - 0.3) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
 
-    plt.figure()
+    # Create figure with two subplots (power spectrum and residual)
+    fig = plt.figure(figsize=(8, 8))
+    gs = GridSpec(2, 1, height_ratios=[3, 1], hspace=0.05)  # 2 rows, taller power spectrum
+
+    # Top subplot: Power spectrum
+    ax1 = fig.add_subplot(gs[0])
+    ax1.axvspan(0.05, 0.1, alpha=0.2, color='grey')
     for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
-                plt.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
-    plt.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', 
-                       label=f'Model') 
-    plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
-                       color='tab:orange', ls='--', label = f'Best Fit') 
-    plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
-    plt.ylabel(rf'$P(k)$   (z = {z})')
-    plt.xlabel(r'k $[km/s]^{-1}$')
-    plt.legend(loc='lower left')
-    plt.tight_layout()
-    plt.savefig(rf'{z}_recovered_power.png')
-    
-    print(rf'Saving: {z}_power_residual.png')
-    plt.figure()
-    plt.semilogx(k_array_input, delta_P_real, label = f"(Model - Best Fit) / Model")
-    plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
-    plt.xlim([10e-5,10e-2])
-    plt.ylim(-delta_P_real.max(),delta_P_real.max())
-    plt.xlabel(r'k $[km/s]^{-1}$')
-    plt.ylabel(rf"$\Delta$ P / P   (z = {z})")
-    plt.legend()
-    plt.grid()
-    plt.tight_layout()
-    plt.savefig(rf'{z}_power_residual.png')   
+        ax1.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
+    ax1.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', label='Model')
+    ax1.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
+               color='tab:orange', ls='--', label='Best Fit')
+    # ax1.set_ylim(mirrored_fit_power[w_fit_k].real.min() - 10, mirrored_fit_power[w_fit_k].real.max() + 100)
+    ax1.set_ylim(1e-1, mirrored_fit_power[w_fit_k].real.max() + 100)
+    ax1.set_ylabel(rf'$P(k)$   (z = {z})')
+    ax1.legend(loc='lower left')
 
+    # Bottom subplot: Residuals
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+    ax2.semilogx(k_array_input, delta_P_real) #, label="(Model - Best Fit) / Model")
+    ax2.axvspan(0.05, 1.0, alpha=0.2, color='grey')
+    ax2.set_ylim(-delta_P_real.max(), delta_P_real.max())
+    ax2.set_xlabel(r'k $[km/s]^{-1}$')
+    ax2.set_ylabel(r"$\Delta P / P$")
+    # ax2.legend()
+    ax2.grid()
+
+    # Ensure both subplots share the same x-axis limits
+    x_min, x_max = k_array_input[w_k].min(), 0.1
+    ax1.set_xlim(x_min,x_max)
+    ax2.set_xlim(x_min,x_max)
+
+    # Remove x-axis ticks from the top plot
+    plt.setp(ax1.get_xticklabels(), visible=False)
+
+    # Save figure
+    # plt.tight_layout()
+    plt.savefig(rf'{z}_recovered_power.png')
+    plt.close()
 
 #######################################
 
