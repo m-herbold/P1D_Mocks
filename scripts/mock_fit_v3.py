@@ -298,7 +298,7 @@ def process_flux_data(flux_file=None):
             print(f"Error reading flux file: {e}")
             return
     else:
-        print(f"No (F,z) file provided, using default model (Turner et al., 2024)\n")
+        print(f"No (F,z) file provided, using default model (Turner et al., 2024)")
         flux_array = turner24_mf(flux_fitting_z_array)
         flux_z_array = flux_fitting_z_array
         flux_model = 'Turner et al., 2024'
@@ -399,6 +399,160 @@ def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
     xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, 
                                                          nu, sigma2, z0) for xi_g_i in xi_g])
     return xi_f_calculated - xi_f_target
+
+
+def solve_xi_optimized(z_target, redshift_index, size, xi_f_target, tau0, tau1, nu, sigma2, z0):
+    print('\n(Fitting xi_f)')
+    print(f"N-Points:     {size}")
+    
+    time_1 = time.strftime("%H:%M:%S")
+    print("Start Time:  ", time_1)
+    start_time = time.time()
+
+    xi_g_initial_guess = np.full(xi_f_target.size, 0.1)
+
+    result = least_squares(objective, xi_g_initial_guess, 
+                           args=(z_target[redshift_index], 
+                                 xi_f_target, tau0, tau1, nu, sigma2, z0))
+    xi_g_optimized = result.x
+
+    time_2 = time.strftime("%H:%M:%S")
+    print("End Time:    ", time_2)
+    end_time = time.time()  
+    elapsed_time = end_time - start_time 
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    print(f"Elapsed Time: {minutes} min {seconds} sec\n")
+
+    print(f"sigma2 from Mean Flux fit:      {sigma2}")
+    print(f"Calculated sigma2 from Xi_G(0): {xi_g_optimized[0]}")
+    print(f"Difference:                     {np.abs(sigma2-xi_g_optimized[0])}")
+       
+    xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], 
+                                xi_g_i, sigma2, tau0, tau1, nu, z0) 
+                               for xi_g_i in xi_g_optimized])
+    
+    return xi_g_optimized, xi_f_optimized   
+
+
+def extrapolate_xiG(v_array, xi_G, safe_z, save_cf):
+    # Extrapolate xi_G to zero
+    linear_extrapolation = interp1d(v_array, xi_G, 
+                                        kind='linear', fill_value="extrapolate")
+    zero_point = linear_extrapolation(0)
+    print(f"zero_point: {zero_point}\n")
+    
+    v_extrapolated = np.logspace(np.log10(1), np.log10(max(v_array)), num=100)  
+    v_extrapolated = np.insert(v_extrapolated, 0, 0)
+        
+    xi_g_new_vals = np.insert(xi_G, 0, zero_point)
+    v_extended = np.insert(v_array, 0, 0)
+        
+    spline = CubicSpline(v_extended, xi_g_new_vals, bc_type='natural')
+    xi_g_extrapolated = spline(v_extrapolated)
+
+    # Export & save data
+    export_data_half = np.column_stack((v_extrapolated, xi_g_extrapolated))
+    
+    if save_cf == 'half': # saves half cf, extended to zero
+        np.savetxt(rf'{safe_z}_xiG_half_output.txt', export_data_half, fmt="%.6f", 
+                   delimiter="\t", header="Velocity\tXi_G_fit")    
+    else: # save nothing
+        pass
+
+    return v_extrapolated, xi_g_extrapolated, zero_point # returns half cf for xif calculation
+
+
+def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
+    data = np.loadtxt(f"{safe_z}_xiG_half_output.txt")  
+    file_v = data[:, 0]         # First column
+    file_xiG = data[:, 1]       # Second column
+    
+    def truncate_trailing_zeros(x, y):
+        # Find the last index where y is nonzero
+        last_nonzero_index = np.max(np.nonzero(y))  
+        
+        # Ensure at least one zero remains at the end
+        if last_nonzero_index < len(y) - 1 and y[last_nonzero_index + 1] == 0:
+            last_nonzero_index += 1  # Keep the first zero after the last nonzero value
+        
+        return x[:last_nonzero_index + 1], y[:last_nonzero_index + 1]
+    v_truncated, xiG_truncated = truncate_trailing_zeros(file_v, file_xiG)
+    
+    # interpolate linearly (constant dv)
+    file_v_fine = np.linspace(v_truncated.min(), v_truncated.max(), 2**20) 
+
+    cs = CubicSpline(v_truncated, xiG_truncated) 
+    file_xi_g_fine = cs(file_v_fine)  
+
+    dv_fit_fine = np.diff(file_v_fine)  
+    v_spacing = np.mean(dv_fit_fine)
+
+    v_extended = np.concatenate([file_v_fine, file_v_fine + file_v_fine[-1] + v_spacing])
+    
+    # Mirror the correlation function values
+    file_xig_extended = np.concatenate([file_xi_g_fine, file_xi_g_fine[::-1]])
+    
+    export_data_full = np.column_stack((v_extended, file_xig_extended))
+
+    if save_cf == 'full': # saves full cf (extrapolted to zero and mirrored)
+        np.savetxt(rf'{safe_z}_xiG_full_output.txt', export_data_full, fmt="%.6f", 
+                   delimiter="\t", header="Velocity\tXi_G_fit")
+    else:
+        pass
+
+    return v_extended, file_xig_extended
+
+    
+###############################################
+
+def recover_power(k_arr, xi, v_arr, cf_size):
+    dv = np.mean(np.diff(v_arr) )
+   
+    if cf_size == 'half': # mirror first, assume half cf
+        v_mirrored = np.concatenate([v_arr, v_arr + v_arr[-1] + dv])
+        xi_mirrored = np.concatenate([xi, xi[::-1]])
+        mirrored_fit_power = np.fft.rfft(xi_mirrored) * dv 
+        mirrored_fit_k_arr = 2 * np.pi * np.fft.rfftfreq(len(xi_mirrored/2), d=dv)
+
+        return mirrored_fit_k_arr, mirrored_fit_power
+    
+    elif cf_size == 'full': # do not mirror, assume full cf already
+        fit_power = np.fft.rfft(xi) * dv * 2
+        fit_k_arr = 2 * np.pi * np.fft.rfftfreq(len(xi), d=dv)
+        
+        return fit_k_arr, fit_power
+        
+    else: 
+        pass 
+
+
+def interpolate_arrays(new_size, v_spacing, k_data, p_data):
+    new_v_data = np.arange(new_size) * v_spacing
+    new_k_data = np.linspace(k_data.min(), k_data.max(), new_size)
+
+    cs = CubicSpline(np.ravel(k_data), np.ravel(p_data))
+    new_p_data = cs(new_k_data)
+
+    return new_v_data, new_k_data, new_p_data
+
+
+def downsample_array(v_array, xi_array, downsample_size, log_scale=True):
+    velocity_abs = np.abs(v_array[1:]) 
+            
+    if log_scale:
+        log_v_min, log_v_max = np.log10(1 + velocity_abs.min()), np.log10(1 + velocity_abs.max())
+        v_array_downsampled = np.logspace(log_v_min, log_v_max, downsample_size) - 1  # Shift back
+    else:
+        v_array_downsampled = np.linspace(velocity_abs.min(), velocity_abs.max(), downsample_size)
+            
+    # Interpolate xif values onto the downsampled velocity grid
+    cs = CubicSpline(velocity_abs, xi_array[1:])
+    xif_downsampled = cs(v_array_downsampled)
+        
+    dv_downsampled = np.diff(v_array_downsampled)
+        
+    return v_array_downsampled, xif_downsampled, dv_downsampled
 
 
 #######################################
@@ -583,17 +737,26 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
 
 def main():
     parser = argparse.ArgumentParser(description="Process P1D and k arrays from file with redshift parameters.")
-    parser.add_argument('--power_file', type=str, help='Path to input (P,k) file (.txt) containing k and P1D arrays')
-    parser.add_argument('--flux_file', type=str, help='Path to input (F,z) file (.txt) containing z and mean flux arrays')
-    parser.add_argument('--z_target', type=str, required=True, help='Path to input file (.txt) containing target redshift values, OR a single float input')
-    
-    parser.add_argument('--plot_mean_flux', action='store_true', help='Generate and save a figure of the Mean Flux (default: False)')
-    parser.add_argument('--plot_target_power', action='store_true', help='Generate and save a figure of the target P1D (default: False)')
-    parser.add_argument('--plot_target_xif', action='store_true', help='Generate and save a figure of the target Xi_F (default: False)')
-    parser.add_argument('--plot_xig_fit', action='store_true', help='Generate and save a figure of the Xi_G fit (default: False)')
-    parser.add_argument('--plot_xif_fit', action='store_true', help='Generate and save a figure of the Xi_F fit (default: False)')
-    parser.add_argument('--plot_xif_recovered', action='store_true', help='Generate and save a figure of the Xi_F, recovered from Xi_G best fit (default: False)')
-    parser.add_argument('--plot_recovered_power', action='store_true', help='Generate and save a figure of the P1D, recovered from Xi_F best fit (default: False)')
+    parser.add_argument('--power_file', type=str, 
+                        help='Path to input (P,k) file (.txt) containing k and P1D arrays')
+    parser.add_argument('--flux_file', type=str, 
+                        help='Path to input (F,z) file (.txt) containing z and mean flux arrays')
+    parser.add_argument('--z_target', type=str, required=True, 
+                        help='Path to input file (.txt) containing target redshift values, OR a single float input')
+    parser.add_argument('--plot_mean_flux', action='store_true', 
+                        help='Generate and save a figure of the Mean Flux (default: False)')
+    parser.add_argument('--plot_target_power', action='store_true', 
+                        help='Generate and save a figure of the target P1D (default: False)')
+    parser.add_argument('--plot_target_xif', action='store_true', 
+                        help='Generate and save a figure of the target Xi_F (default: False)')
+    parser.add_argument('--plot_xig_fit', action='store_true', 
+                        help='Generate and save a figure of the Xi_G fit (default: False)')
+    parser.add_argument('--plot_xif_fit', action='store_true', 
+                        help='Generate and save a figure of the Xi_F fit (default: False)')
+    parser.add_argument('--plot_xif_recovered', action='store_true', 
+                        help='Generate and save a figure of the Xi_F, recovered from Xi_G best fit (default: False)')
+    parser.add_argument('--plot_recovered_power', action='store_true', 
+                        help='Generate and save a figure of the P1D, recovered from Xi_F best fit (default: False)')
     
     args = parser.parse_args()
 
@@ -610,7 +773,6 @@ def main():
     k_array, P1D_array, dv_array, numvpoints_array = process_power_data(z_target, args.power_file)
     # flux file  (optional) 
     flux_z_array, flux_array, flux_model = process_flux_data(args.flux_file)
-
     
     ### FIT MEAN FLUX  ###
     tau0, tau1, nu, sigma2 = fit_mean_flux(flux_array, flux_z_array, z0)
@@ -632,102 +794,51 @@ def main():
         dv = dv_array[redshift_index]
         numvpoints = numvpoints_array[redshift_index]
         
-        print(f"\nProcessing redshift: {z}\n")
+        print(f"\nProcessing redshift: {z}")
         print(f'Mean Flux (z = {z}): {lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)[0]}')
 
         k_array_input, p1d_input = scale_input_power(redshift_index, k_array, P1D_array, args.power_file)
-            
-        # interpolate input power to a set size
-        new_size = 2**20
-        new_v_array = np.arange(new_size) * dv
-        k_array_fine = np.linspace(k_array_input.min(), k_array_input.max(), new_size)
-        
-        cs = CubicSpline(np.ravel(k_array_input), np.ravel(p1d_input))
-        p1d_fine = cs(k_array_fine)
-        
+
+        # Interpolate input P(k) to a set size
+        interp_size = 2**20
+        new_v_array, k_array_fine, p1d_fine = interpolate_arrays(interp_size, dv, k_array_input, p1d_input)
+    
         ##############################################
         if args.plot_target_power:
             plot_target_power(safe_z, k_array_input, 
                               p1d_input, k_array_fine, p1d_fine)
         ##############################################
 
-        # calculate target xi_f from p_f
-        xif_interp_fit = (np.fft.irfft(p1d_fine))[:new_size] / dv
+        # Calculate target xi_f from target p_f
+        xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
-        # downsample xi_f (logarithmically)
-        downsample_size = 2**5
-
-        velocity_abs = np.abs(new_v_array[1:])  
-        log_v_min, log_v_max = np.log10(1 + velocity_abs.min()), np.log10(1 + velocity_abs.max())
-        v_array_downsampled = np.logspace(log_v_min, log_v_max, downsample_size) - 1  # Shift back
-
-        cs = CubicSpline(velocity_abs, xif_interp_fit[1:]) 
-        xif_target_downsampled = cs(v_array_downsampled) 
-
-        dv_downsampled = np.diff(v_array_downsampled)  # Compute dv
-        
+        # Downsample xi_f (logarithmically)
+        downsample_size = 2**6
+        v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
+            new_v_array, xif_interp_fit, downsample_size, log_scale=True)
+       
         ##############################################
         if args.plot_target_xif:
             plot_target_xif(safe_z, new_v_array, xif_interp_fit, 
                             v_array_downsampled, xif_target_downsampled, dv)
         ##############################################
-       
-        # now solve for xi_G
-        print('\n(Fitting xi_f)')
-        print(f"N-Points:     {downsample_size}")
-        time_1 = time.strftime("%H:%M:%S")
-        print("Start Time:  ", time_1)
-        start_time = time.time()
 
-        xi_f_target = xif_target_downsampled
-        xi_g_initial_guess = np.full(xi_f_target.size, 0.1)
-        
-        result = least_squares(objective, xi_g_initial_guess, args=(z_target[redshift_index], 
-                                                                    xi_f_target, tau0, tau1, nu, sigma2, z0))
-        xi_g_optimized = result.x
-
-        time_2 = time.strftime("%H:%M:%S")
-        print("End Time:    ", time_2)
-        
-        end_time = time.time()  
-        elapsed_time = end_time - start_time 
-        minutes = int(elapsed_time // 60)
-        seconds = int(elapsed_time % 60)
-        print(f"Elapsed Time: {minutes} min {seconds} sec\n")
-
-        print(f"sigma2 from Mean Flux fit:      {sigma2}")
-        print(f"Calculated sigma2 from Xi_G(0): {xi_g_optimized[0]}")
-        print(f"Difference:                     {np.abs(sigma2-xi_g_optimized[0])}")
-       
-        xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], 
-                                                            xi_g_i, sigma2, tau0, tau1, nu, z0) 
-                                   for xi_g_i in xi_g_optimized])
-        
+        # Solve for xi_G and xi_F optimized
+        xi_g_optimized, xi_f_optimized =  solve_xi_optimized(z_target, redshift_index, 
+                                                             downsample_size, xif_target_downsampled, 
+                                                             tau0, tau1, nu, sigma2, z0)
         ##############################################
         if args.plot_xif_fit:
             plot_xif_fit(safe_z,  v_array_downsampled, 
                          xi_f_target, xi_f_optimized, dv)
         ##############################################
-        
-        # extend the xi_g fit to zero 
-        linear_extrapolation = interp1d(v_array_downsampled, xi_g_optimized, 
-                                        kind='linear', fill_value="extrapolate")
-        zero_point = linear_extrapolation(0)
-        print(f"zero_point: {zero_point}")
-       
-        v_extrapolated = np.logspace(np.log10(1), np.log10(max(v_array_downsampled)), num=100)  
-        v_extrapolated = np.insert(v_extrapolated, 0, 0) 
-
-        xi_g_new_vals = np.insert(xi_g_optimized, 0, zero_point)
-        v_extended = np.insert(v_array_downsampled, 0, 0)
-
-        spline = CubicSpline(v_extended, xi_g_new_vals, bc_type='natural')
-        xi_g_extrapolated = spline(v_extrapolated)
-
-        # save (v_extrapolated, xi_g_extrapolated) to txt file
-        export_data = np.column_stack((v_extrapolated, xi_g_extrapolated))
-        np.savetxt(rf'{safe_z}_output.txt', export_data, fmt="%.6f", 
-                   delimiter="\t", header="Velocity\tXi_G_fit")
+    
+        # Extrapolate xi_G to zero (saves half and full cf)
+        v_extrapolated, xi_g_extrapolated, zero_point = extrapolate_xiG(v_array_downsampled, 
+                                                            xi_g_optimized, safe_z, save_cf='half')
+        # Mirror and export xi_G full 
+        v_mirrored, xiG_mirrored = mirror_xiG(v_extrapolated, xi_g_extrapolated, 
+                                              safe_z, save_cf='full')
 
         ##############################################
         if args.plot_xig_fit:
@@ -735,12 +846,12 @@ def main():
                          zero_point, v_extrapolated, xi_g_extrapolated)
         ##############################################
         
-        # recover xi_f
+        # Recover xi_f
         xi_f_optimized_extrapolated = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], 
-                                                                         xi_g_i, tau0, tau1, nu, sigma2, z0) 
+                                                xi_g_i, tau0, tau1, nu, sigma2, z0) 
                                                 for xi_g_i in xi_g_extrapolated])
-
-        v_fine = np.linspace(v_extrapolated.min(), v_extrapolated.max(), 2**20) 
+        # Interpolate linearly
+        v_fine = np.linspace(v_extrapolated.min(), v_extrapolated.max(), interp_size) 
         cs = CubicSpline(v_extrapolated, xi_f_optimized_extrapolated)  
         xif_fine = cs(v_fine)  
 
@@ -751,47 +862,28 @@ def main():
                                  xi_f_optimized_extrapolated, dv)
         ##############################################
         
-        # recover P_F (k)
-        dv_fine = np.diff(v_fine) 
-        new_dv = np.mean(dv_fine)
+        # Recover P_F (k)       
+        fit_k_arr, fit_power = recover_power(k_array_fine, xif_fine, v_fine, cf_size='half')
 
-        fit_power = np.fft.rfft(xif_fine) * new_dv * 2
-        fit_k_arr = 2 * np.pi * np.fft.rfftfreq(len(xif_fine), d=new_dv)
-        
+        # Set windows for plotting
+        w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)  
+        w_fit_k = (fit_k_arr > 1e-4) & (fit_k_arr < 0.05)  
+        w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.05) 
+
         p1d_precision = 1e-1
-        w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)     # Window for k_array
-        w_fit_k = (fit_k_arr > 1e-4) & (fit_k_arr < 0.05)         # Window for fit_k_arr
-        w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.05)  # Window for k_array_fine
         ptrue = p1d_input[w_k]
         e_p1d = p1d_precision * ptrue + 1e-8
 
-            
-        # mirror xi_f and then recover P1D
-        v_spacing = v_fine[1] - v_fine[0]  # Compute the step size
-        v_mirrored = np.concatenate([v_fine, v_fine + v_fine[-1] + v_spacing])
-        xi_f_mirrored = np.concatenate([xif_fine, xif_fine[::-1]])
-        mirrored_fit_power = np.fft.rfft(xi_f_mirrored) * v_spacing 
-        mirrored_fit_k_arr = 2 * np.pi * np.fft.rfftfreq(len(xi_f_mirrored/2), d=v_spacing)
-        
-        w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)  
-        w_fit_k = (mirrored_fit_k_arr > 1e-4) & (mirrored_fit_k_arr < 0.05)  
-        w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.05) 
-
-        # # optional: extend to smaller scales (higher k)
-        # w_k = (k_array_input > 1e-4) & (k_array_input < 0.1)  
-        # w_fit_k = (mirrored_fit_k_arr > 1e-4) & (mirrored_fit_k_arr < 0.1) 
-        # w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.1) 
-        
         # Compute residual
-        fit_power_interp_2 = np.interp(k_array_input, mirrored_fit_k_arr, mirrored_fit_power)
+        fit_power_interp_2 = np.interp(k_array_input, fit_k_arr, fit_power)
         delta_P = np.real((p1d_input.real - fit_power_interp_2.real) / p1d_input.real)
         delta_P_real = delta_P.real
         
         ##############################################
         if args.plot_recovered_power:
             plot_recovered_power(safe_z, k_array_input, p1d_input, w_k, 
-                                 mirrored_fit_k_arr, mirrored_fit_power, 
-                                 w_fit_k, e_p1d, redshift_index, delta_P_real)        
+                                 fit_k_arr, fit_power, w_fit_k, e_p1d, 
+                                 redshift_index, delta_P_real)        
         ##############################################
 
 if __name__ == "__main__":
