@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from iminuit import Minuit
 from scipy.optimize import minimize
 from scipy.optimize import least_squares
@@ -9,8 +10,6 @@ from iminuit.cost import LeastSquares
 from scipy.optimize import fsolve
 from scipy.interpolate import CubicSpline
 from scipy.interpolate import interp1d
-from astropy.io import fits
-from scipy.optimize import curve_fit
 from astropy.io import fits
 
 import argparse
@@ -21,12 +20,14 @@ import time
 
 #######################################
 
+
 plt.rcParams['figure.figsize'] = (8, 6)   
 plt.rcParams['font.size'] = 16         
 plt.rcParams['axes.titlesize'] = 16     
 plt.rcParams['legend.fontsize'] = 14    
-plt.rcParams['savefig.dpi'] = 100       
+plt.rcParams['savefig.dpi'] = 150       
 plt.rcParams['axes.labelsize'] = 16      
+
 
 #######################################
 
@@ -36,8 +37,8 @@ DESI_EDR_PARAMETERS = (
     3.67469e+00, 2.85951e-01, 7.33473e+02)
 
 # set pivot points for k and z using fiducial power estimate
-PD13_PIVOT_K = 0.009 # note: k_0
-PD13_PIVOT_Z = 3.0   # note: z0 = 3
+PD13_PIVOT_K = 0.009  # note: k_0
+PD13_PIVOT_Z = 3.0    # note: z0 = 3
 
 gh_degree = 25
 gausshermite_xi_deg, gausshermite_wi_deg = np.polynomial.hermite.hermgauss(int(gh_degree))
@@ -123,47 +124,39 @@ def PD13Lorentz_DESI_EDR(zlist):
     return p1d_edr_fit
 
 
-def a2_z(zp, nu=2.82, z0=3.0):
+def a2_z(zp, nu = 2.82, z0 = PD13_PIVOT_Z):
     return np.power((1. + zp) / (1.+z0), -nu)
 
 
-def a_z(zp, nu=2.82, z0=3.0):
+def a_z(zp, nu = 2.82, z0 = PD13_PIVOT_Z):
     return np.sqrt(np.power((1. + zp) / (1.+z0), -nu))
 
 
-def t_of_z(zp, tau0=0.55, tau1=5.1, z0=3.):
+def t_of_z(zp, tau0 = 0.55, tau1 = 5.1, z0 = PD13_PIVOT_Z):
     return tau0 * np.power((1. + zp) / (1.+z0), tau1)
 
 
-def n_z(zp, nu, sigma2, z0=3):
+def n_z(zp, nu, sigma2, z0 = PD13_PIVOT_Z):
     return np.exp(-a2_z(zp, nu, z0) - sigma2)
 
 
-def x_of_z(zp, tau0, tau1, nu, sigma2, z0=3):
+def x_of_z(zp, tau0, tau1, nu, sigma2, z0 = PD13_PIVOT_Z):
     return t_of_z(zp, tau0, tau1, z0) * np.exp(-a2_z(zp, nu, z0) * sigma2)
 
 
-def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0=3):
+def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0 = PD13_PIVOT_Z):
     e1 = np.exp(2 * a2_z(z, nu / 2, z0) * np.sqrt(2 * sigma2) * delta_g)
     e2 = x_of_z(z, tau0, tau1, nu, sigma2, z0)
     return np.exp(-e2 * e1)
 
 
-def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0, degree = gh_degree):
-    gausshermite_xi, gausshermite_wi = np.polynomial.hermite.hermgauss(degree)
-
-    XIXI, ZZ = np.meshgrid(gausshermite_xi, z)
-
+def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0 = PD13_PIVOT_Z, degree = gh_degree):
+    XIXI, ZZ = np.meshgrid(gausshermite_xi_deg, z)
     Y = Flux_d_z(XIXI, ZZ, tau0, tau1, nu, sigma2, z0)
-    result = np.dot(Y, gausshermite_wi)
+    result = np.dot(Y, gausshermite_wi_deg)
 
     return result / np.sqrt(np.pi)
-
-
-def lognGeneratingPower(k, n=0.5, alpha=0.26, gamma=1.8, k1=0.04):
-    q0 = np.log(k / 0.001 + 1e-15)
-    return np.exp(n * q0 - alpha * q0**2) / (1. + (k / k1)**gamma) * np.exp(-(k / 0.2)**2 / 2)
-
+    
 
 def process_power_file(power_file): 
     if power_file:
@@ -192,6 +185,7 @@ def process_power_file(power_file):
         print("\nNo (P,k,z) file provided, using default model (DESI EDR)\n")
         return {}, np.array([])  # Return empty dict and array
 
+
 def compute_velocity_properties(k_array):
     """
     Compute velocity grid properties from an input k_array.
@@ -218,18 +212,271 @@ def compute_velocity_properties(k_array):
         dv = np.pi / (dk * numvpoints) 
     else:
         # More general case: Use range of k values 
-        # dv = np.pi / ((k_max - k_min) / (numvpoints - 1))
         print('k-array is not evenly spaced')
 
     return dv, numvpoints
 
+    
+def fit_mean_flux(flux_array, flux_z_array, z0):
+    flux_fit_precision = 1e-5
+    Err_flux_fit = flux_array * flux_fit_precision + 1e-8
+
+    def flux_fit_cost(tau0, tau1, nu, sigma2):
+        d = (flux_array - lognMeanFluxGH(flux_z_array, tau0, tau1, nu, sigma2, z0)) / Err_flux_fit
+        return d.dot(d)
+            
+    # Set initial guesses for fitting parameters
+    tau0_0, tau1_0, nu_0, sigma2_0 = 0.55, 5.1, 2.82, 2.0
+
+    mini = Minuit(flux_fit_cost, tau0_0, tau1_0, nu_0, sigma2_0)
+    mini.errordef = Minuit.LEAST_SQUARES
+    mini.migrad()
+
+    return mini.values
+
+
+def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
+    """
+    Arguments
+    ---------
+    z: float
+        Single redshift
+    tau0, tau1: float
+        Amplitude (tau0) and power (tau1) of optical depth
+    nu: float
+        Slope of growth (a(z))
+    xi_gauss: float
+        Single xi_g value from Gaussian random field
+    """
+    xi_sine = np.clip(xi_gauss / sigma2, -1, 1)
+    xi_cosine = np.sqrt(1 - xi_sine**2)
+    XI_VEC = np.array([xi_sine, xi_cosine])
+    
+    YY2_XI_VEC_WEIGHTED = np.dot(XI_VEC, np.array([YY1, YY2]).transpose(1, 0, 2))
+    
+    # Redshift-dependent computations
+    mean_flux_z = lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)
+    sigmaz = a2_z(z, nu / 2, z0) * np.sqrt(sigma2)
+    tempxz = x_of_z(z, tau0, tau1, nu, sigma2, z0)
+    delta1 = YY1 * sigmaz * 2 * np.sqrt(2)
+    delta2 = YY2_XI_VEC_WEIGHTED * sigmaz * 2 * np.sqrt(2)
+    
+    F1 = np.exp(-tempxz * np.exp(delta1))
+    F2 = np.exp(-tempxz * np.exp(delta2))
+    D1 = F1 / mean_flux_z - 1
+    D2 = F2 / mean_flux_z - 1
+    tempfunc = WW1 * WW2 * D1 * D2
+   
+    # Return a single xi_f scalar
+    xi_f = np.sum(tempfunc) / np.pi
+    return xi_f
+
+
+def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
+    """
+    Compute the difference between the target xi_f values and the xi_f values
+    calculated from xi_g using lognXiFfromXiG_pointwise.
+
+    Parameters
+    ----------
+    xi_g : array-like
+        Current guess for xi_g values.
+    z : float
+        Redshift at which xi_f is calculated.
+    xi_f_target : array-like
+        Target xi_f values, in this case, xif_edr_fit.
+ 
+    Returns
+    -------
+    array-like
+        Residuals between calculated and target xi_f.
+    """
+    xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
+    return xi_f_calculated - xi_f_target
+
+
+#######################################
+
+
+def plot_mean_flux(z, target_flux, bestfit_values, flux_model, z0 = PD13_PIVOT_Z): 
+    print('Saving: Mean_Flux_Fit.png')
+    tau0, tau1, nu, sigma2 = bestfit_values
+    plt.figure()
+    plt.plot(z, lognMeanFluxGH(z, *bestfit_values, z0), color='tab:blue', 
+             ls='-', label='Best Fit', lw='6', alpha = 0.5)
+    plt.plot(z, target_flux, color='black', ls='--', label=f'Model: {flux_model}')
+    plt.xlabel('z')
+    plt.ylabel(r'$\bar F(z) $')
+    plt.legend(loc='upper right')
+    txt=f'tau0 = {tau0}\ntau1 = {tau1}\nnu = {nu}\nsigma2 = {sigma2}'
+    plt.text(0.02, 0.1, txt, ha='left', va='center', fontsize=14, transform=plt.gca().transAxes)
+    plt.tight_layout()
+    plt.savefig('Mean_Flux_Fit')
+
+
+def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
+    print(rf'Saving: {z}_P1D_target.png')
+    plt.figure()
+    
+    plt.loglog(k_array_input, p1d_input, alpha = 0.7, 
+               label=f'input P1D, z={z}, N={k_array_input.size}')
+    plt.loglog(k_array_fine, p1d_fine, color='tab:orange', 
+               label=f'interpolated, z={z}, N={k_array_fine.size}', ls='--')
+    plt.legend()
+    plt.xlabel(r'k $[km/s]^{-1}$')
+    plt.ylabel(r'$P_{1D}$ ')
+    plt.savefig(rf'{z}_P1D_target.png')
+
+
+def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled, xif_target_downsampled, dv):
+    print(rf'Saving: {z}_xi_F_target.png')
+    plt.figure()
+    plt.semilogx(new_v_array[1:], xif_interp_fit[1:], 
+                 label='interpolated, N =' +str(new_v_array.size))
+    plt.semilogx(v_array_downsampled, xif_target_downsampled, 
+                 label='downsampled, N =' +str(v_array_downsampled.size), ls='--', marker='o')
+    plt.xlabel('v [km/s]')
+    plt.ylabel(r'$\xi_F$')
+    plt.title(r'$\xi_F$ Target,  z = '+str(z))
+    plt.vlines(dv, 0, 0.20, color='black', ls='--', label=f'dv = {dv:.2f} km/s')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(rf'{z}_xi_F_target.png')
+
+
+def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
+    print(rf'Saving: {z}_xi_F_fit.png')
+    plt.figure()
+    plt.semilogx(v_array_downsampled, xi_f_target, alpha=0.5, 
+                 label = r'$\xi_F$ Target', color = 'tab:blue')
+    plt.semilogx(v_array_downsampled, xi_f_optimized,  marker='o', 
+                 label=r"$\xi_F$ Fit", color="tab:orange", ls='--')
+    plt.axvline(x=dv, color='black', linestyle='--', 
+                label=f"dv: {dv:.2f} km/s")
+    plt.legend()
+    plt.xlabel('v [km/s]')
+    plt.ylabel(r'$\xi_F$')
+    plt.title(rf'$\xi_F$ Fit vs Data  (z = {z})')
+    plt.tight_layout()
+    plt.savefig(rf'{z}_xi_F_fit.png')
+
+    dif_xi_f = xi_f_target - xi_f_optimized
+    abs_dif_xi_f = np.abs(dif_xi_f)
+    max_y = dif_xi_f[np.argmax(abs_dif_xi_f)] 
+    max_x = v_array_downsampled[np.argmax(abs_dif_xi_f)]
+    
+    print(rf'Saving: {z}_xi_F_fit_residual.png')
+    plt.figure()
+    plt.semilogx(v_array_downsampled, dif_xi_f, 
+                 label = f'z = {z}', color = 'tab:blue')
+    plt.axvline(x=dv, color='black', linestyle='--', 
+                label=f"dv: {dv:.2f} km/s")
+    plt.xlabel('v [km/s]')
+    plt.ylabel(r'$\Delta \xi_F$')
+    plt.legend()
+    plt.title(r"$\xi_F$ Residual (Model - Fit)")
+    plt.tight_layout()
+    plt.savefig(rf'{z}_xi_F_fit_residual.png')
+
+
+def plot_xig_fit(z, v_array_downsampled, xi_g_optimized, 
+                 zero_point, v_extrapolated, xi_g_extrapolated):
+    print(rf'Saving: {z}_xi_G_fit.png')
+    plt.figure()
+    plt.plot(v_array_downsampled, xi_g_optimized, 
+             'o', label=rf'$\xi_g$ Fit')
+    plt.plot(0, zero_point, 'ro', 
+             label=f'Fixed Point (0, {zero_point:.3f})')
+    plt.plot(v_extrapolated, xi_g_extrapolated, '-', label='CS Extrapolation')
+    plt.xscale('log')  
+    plt.xlabel('v [km/s]')
+    plt.ylabel(r'$\xi_g$')
+    plt.legend()
+    plt.grid()
+    plt.ylim(None, xi_g_extrapolated.max()+0.1)
+    plt.tight_layout()
+    plt.savefig(rf'{z}_xi_G_fit.png')
+
+
+def plot_xi_f_recovered(z, v_fine, xif_fine, 
+                        v_array_downsampled, xif_target_downsampled, 
+                        v_extrapolated, xi_f_optimized_extrapolated, dv):
+    print(rf'Saving: {z}_xi_F_recovered.png')
+    plt.figure()
+    plt.semilogx(v_fine, xif_fine, label=f're-interp., N = {v_fine.size}', 
+                 color='tab:green', lw=5, alpha=0.3)
+    plt.semilogx(v_array_downsampled, xif_target_downsampled, 
+                 label=f'downsampled Target, N = {v_array_downsampled.size}', 
+                 ls='-', marker='o', color='tab:blue')
+    plt.semilogx(v_extrapolated, xi_f_optimized_extrapolated, 
+                 label=r"$\xi_F$ Fit, N = "+str(v_extrapolated.size), 
+                 color="tab:orange", ls='--')
+    plt.axvline(x=dv, color='black', linestyle='--', label=f"dv: {dv:.2f}")
+    plt.xlabel('v [km/s]')
+    plt.ylabel(r'$\xi_F$')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(rf'{z}_xi_f_recovery.png')
+
+
+def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr, 
+                         mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
+    print(rf'Saving: {z}_recovered_power.png')
+
+    temp_k = k_array_input[w_k]
+    temp_p = p1d_input[w_k]
+    temp_e = np.full_like(temp_k, e_p1d[z_id])
+
+    log_k_values = np.log10(temp_k)
+    log_k_min = np.min(log_k_values)
+    log_k_max = np.max(log_k_values)
+    alpha_values = 0.02 + (1 - 0.3) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
+
+    # Create figure with two subplots (power spectrum and residual)
+    fig = plt.figure(figsize=(8, 8))
+    gs = GridSpec(2, 1, height_ratios=[3, 1], hspace=0.05)  # 2 rows, taller power spectrum
+
+    # Top subplot: Power spectrum
+    ax1 = fig.add_subplot(gs[0])
+    ax1.axvspan(0.05, 0.1, alpha=0.2, color='grey')
+    for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
+        ax1.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
+    ax1.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', label='Model')
+    ax1.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
+               color='tab:orange', ls='--', label='Best Fit')
+    # ax1.set_ylim(mirrored_fit_power[w_fit_k].real.min() - 10, mirrored_fit_power[w_fit_k].real.max() + 100)
+    ax1.set_ylim(1e-1, mirrored_fit_power[w_fit_k].real.max() + 100)
+    ax1.set_ylabel(rf'$P(k)$   (z = {z})')
+    ax1.legend(loc='lower left')
+
+    # Bottom subplot: Residuals
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+    ax2.semilogx(k_array_input, delta_P_real) #, label="(Model - Best Fit) / Model")
+    ax2.axvspan(0.05, 1.0, alpha=0.2, color='grey')
+    ax2.set_ylim(-delta_P_real.max(), delta_P_real.max())
+    ax2.set_xlabel(r'k $[km/s]^{-1}$')
+    ax2.set_ylabel(r"$\Delta P / P$")
+    # ax2.legend()
+    ax2.grid()
+
+    # Ensure both subplots share the same x-axis limits
+    x_min, x_max = k_array_input[w_k].min(), 0.1
+    ax1.set_xlim(x_min,x_max)
+    ax2.set_xlim(x_min,x_max)
+
+    # Remove x-axis ticks from the top plot
+    plt.setp(ax1.get_xticklabels(), visible=False)
+
+    # Save figure
+    # plt.tight_layout()
+    plt.savefig(rf'{z}_recovered_power.png')
+    plt.close()
 
 #######################################
 
 
 def main():
     parser = argparse.ArgumentParser(description="Process P1D and k arrays from file with redshift parameters.")
-    parser.add_argument('--z0', type=float, default=3.0, help='Reference redshift value (default: 3.0)')
     parser.add_argument('--power_file', type=str, help='Path to input (P,k) file (.txt) containing k and P1D arrays')
     parser.add_argument('--flux_file', type=str, help='Path to input (F,z) file (.txt) containing z and mean flux arrays')
     parser.add_argument('--z_target', type=str, required=True, help='Path to input file (.txt) containing target redshift values, OR a single float input')
@@ -244,10 +491,9 @@ def main():
     
     args = parser.parse_args()
 
-    # Process z0
-    z0 = args.z0
-
-    # Process redshift target (required)
+    z0 = PD13_PIVOT_Z
+    
+    ### Process redshift target (required) ###
     try:
         z_target = parse_redshift_target(args.z_target)
     except Exception as e:
@@ -255,14 +501,11 @@ def main():
         return
 
     
-    #############################
-
-    
-    # Process power spectrum data (optional argument)
+    ### Process power data (optional) ###
     grouped_data, zlist = process_power_file(args.power_file) 
 
     if not grouped_data:
-        # No P1D file provided, use default model
+        # If no P1D file provided, use default model
         k_array = k_arr
         zlist = z_target
         P1D_array = PD13Lorentz_DESI_EDR(z_target)
@@ -276,10 +519,9 @@ def main():
             if len(k_array) != len(P1D_array[i]):
                 print(f"Error: Mismatch - k array has {len(k_array)} elements, but P1D array has {len(P1D_array[i])} elements.")
                 return
-                
     else: 
         # process grouped data from file (if applicable)
-        print('\n(P,k,z) file provided, using as target P1D\n')
+        print('\n(P,k,z) file provided, using as target P1D')
     
         P1D_array = []  
         k_array = []  
@@ -311,11 +553,8 @@ def main():
         dv_array = np.array(dv_array)
         numvpoints_array = np.array(numvpoints_array)
 
-
-    ###################################
-
         
-    # Process flux data  (optional)
+    ### Process flux data  (optional) ###
     if args.flux_file:
         print('\n(F,z) file provided, using as target mean flux')
         try:
@@ -330,7 +569,6 @@ def main():
         flux_z_array = flux_fitting_z_array
         flux_model = 'Turner et al., 2024'
 
-
     if len(flux_z_array) != len(flux_array):
         print(f"Error: Mismatch - z array has {len(flux_z_array)} elements, but flux array has {len(flux_array)} elements.")
         return
@@ -338,114 +576,23 @@ def main():
     print("\nData successfully assigned.")
     
     
-    # FIT FOR MEAN FLUX (not sure if I need this inside the z-loop or not)
+    ### FIT MEAN FLUX  ###
     print('\n###  Fitting Mean Flux Parameters  ###\n')
     
-    flux_fit_precision = 1e-5
-    Err_flux_fit = flux_array * flux_fit_precision + 1e-8
+    tau0, tau1, nu, sigma2 = fit_mean_flux(flux_array, flux_z_array, z0)
 
-    def flux_fit_cost(tau0, tau1, nu, sigma2):
-        d = (flux_array - lognMeanFluxGH(flux_z_array, tau0, tau1, nu, sigma2, z0)) / Err_flux_fit
-        return d.dot(d)
-    
-    # Set initial guesses for fitting parameters
-    tau0_0, tau1_0, nu_0, sigma2_0 = 0.55, 5.1, 2.82, 2.0
-    
-    mini = Minuit(flux_fit_cost, tau0_0, tau1_0, nu_0, sigma2_0)
-    mini.errordef = Minuit.LEAST_SQUARES
-    mini.migrad()
+    print(f'tau0 = {tau0}')
+    print(f'tau1 = {tau1}')
+    print(f'nu = {nu}')
+    print(f'sigma2 = {sigma2}')
 
-    # assign new values for fitting parameters
-    tau0, tau1, nu, sigma2 = mini.values
-
-    print('tau0 = '+str(tau0))
-    print('tau1 = '+str(tau1))
-    print('nu = '+str(nu))
-    print('sigma2 = '+str(sigma2))
-
-
-
-    #################################################################
-
-    # now define these functions with values from mean flux fit!
-    
-    def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
-        """
-        Arguments
-        ---------
-        z: float
-            Single redshift
-        tau0, tau1: float
-            Amplitude (tau0) and power (tau1) of optical depth
-        nu: float
-            Slope of growth (a(z) -> D(z))
-        xi_gauss: float
-            Single xi_g value from Gaussian random field
-        """
-        xi_sine = np.clip(xi_gauss / sigma2, -1, 1)
-        xi_cosine = np.sqrt(1 - xi_sine**2)
-        XI_VEC = np.array([xi_sine, xi_cosine])
-    
-        YY2_XI_VEC_WEIGHTED = np.dot(XI_VEC, np.array([YY1, YY2]).transpose(1, 0, 2))
-    
-        # Redshift-dependent computations
-        mean_flux_z = lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)
-        sigmaz = a2_z(z, nu / 2, z0) * np.sqrt(sigma2)
-        tempxz = x_of_z(z, tau0, tau1, nu, sigma2, z0)
-        delta1 = YY1 * sigmaz * 2 * np.sqrt(2)
-        delta2 = YY2_XI_VEC_WEIGHTED * sigmaz * 2 * np.sqrt(2)
-    
-        F1 = np.exp(-tempxz * np.exp(delta1))
-        F2 = np.exp(-tempxz * np.exp(delta2))
-        D1 = F1 / mean_flux_z - 1
-        D2 = F2 / mean_flux_z - 1
-        tempfunc = WW1 * WW2 * D1 * D2
-    
-        # Return a single xi_f scalar
-        xi_f = np.sum(tempfunc) / np.pi
-        return xi_f
-
-    def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
-        """
-        Compute the difference between the target xi_f values and the xi_f values
-        calculated from xi_g using lognXiFfromXiG_pointwise.
-    
-        Parameters
-        ----------
-        xi_g : array-like
-            Current guess for xi_g values.
-        z : float
-            Redshift at which xi_f is calculated.
-        xi_f_target : array-like
-            Target xi_f values, in this case, xif_edr_fit.
-    
-        Returns
-        -------
-        array-like
-            Residuals between calculated and target xi_f.
-        """
-        xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
-        return xi_f_calculated - xi_f_target
-
-    
     ##############################################
     if args.plot_mean_flux:
-        print('Saving: Mean_Flux_Fit.png')
-        plt.figure()
-        plt.plot(flux_z_array, lognMeanFluxGH(flux_z_array, *mini.values, z0), color='tab:blue', ls='-', label='Best Fit', lw='6', alpha = 0.5)
-        plt.plot(flux_z_array, flux_array, color='black', ls='--', label=f'Model: {flux_model}')#Turner et al. 2024')
-        plt.title('Mean Flux')
-        plt.xlabel('z')
-        plt.ylabel(r'$\bar F(z) $')
-        plt.legend(loc='upper right')
-        txt=f'tau0 = {tau0}\ntau1 = {tau1}\nnu = {nu}\nsigma2 = {sigma2}'
-        plt.text(0.02, 0.1, txt, ha='left', va='center', fontsize=14, transform=plt.gca().transAxes)
-        plt.tight_layout()
-        plt.savefig('Mean_Flux_Fit')
-    ##############################################
+        plot_mean_flux(flux_z_array, flux_array, 
+                       fit_mean_flux(flux_array, flux_z_array, z0), flux_model)
+    ##############################################    
 
-    
-    # FITTING POWER 
+    ###  FIT POWER  ###
     print("\n\n###  Fitting Power  ###")
     
     for z in z_target:
@@ -476,20 +623,12 @@ def main():
         cs = CubicSpline(np.ravel(k_array_input), np.ravel(p1d_input))
         p1d_fine = cs(k_array_fine)
         
-
         ##############################################
         if args.plot_target_power:
-            print(rf'Saving: {safe_z}_P1D_target.png')
-            plt.figure()
-            plt.loglog(k_array_input, p1d_input, label = 'input P1D, z='+str(z_target[redshift_index])+', N='+str(numvpoints), alpha=0.7)
-            plt.loglog(k_array_fine, p1d_fine, color='tab:orange', label='interpolated, z='+str(z_target[redshift_index])+', N='+str(new_size), ls='--')
-            plt.legend()
-            plt.xlabel(r'k $[km/s]^{-1}$')
-            plt.ylabel(r'$P_{1D}$ ')
-            plt.savefig(rf'{safe_z}_P1D_target.png')
+            plot_target_power(safe_z, k_array_input, 
+                              p1d_input, k_array_fine, p1d_fine)
         ##############################################
 
-        
         # calculate target xi_f from p_f
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:new_size] / dv
 
@@ -503,25 +642,14 @@ def main():
         cs = CubicSpline(velocity_abs, xif_interp_fit[1:]) 
         xif_target_downsampled = cs(v_array_downsampled) 
 
-        dv_downsampled = np.diff(v_array_downsampled)  # Compute velocity spacing
-
+        dv_downsampled = np.diff(v_array_downsampled)  # Compute dv
         
         ##############################################
         if args.plot_target_xif:
-            print(rf'Saving: {safe_z}_xi_f_target.png')
-            plt.figure()
-            plt.semilogx(new_v_array[1:], xif_interp_fit[1:], label='interpolated, N =' +str(new_size))
-            plt.semilogx(v_array_downsampled, xif_target_downsampled, label='downsampled, N =' +str(downsample_size), ls='--', marker='o')
-            plt.xlabel('v [km/s]')
-            plt.ylabel(r'$\xi_F$')
-            plt.title(r'$\xi_F$ Target,  z = '+str(z_target[redshift_index]))
-            plt.vlines(dv, 0, 0.20, color='black', ls='--', label=f'dv = {dv:.2f} km/s')
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_xi_f_target.png')
+            plot_target_xif(safe_z, new_v_array, xif_interp_fit, 
+                            v_array_downsampled, xif_target_downsampled, dv)
         ##############################################
-
-        
+       
         # now solve for xi_G
         print('\n(Fitting xi_f)')
         print(f"N-Points:     {downsample_size}")
@@ -547,58 +675,16 @@ def main():
         print(f"sigma2 from Mean Flux fit:      {sigma2}")
         print(f"Calculated sigma2 from Xi_G(0): {xi_g_optimized[0]}")
         print(f"Difference:                     {np.abs(sigma2-xi_g_optimized[0])}\n")
-
-        
-        ##############################################
-        # if args.plot_xig_fit:
-        #     plt.figure()
-        #     plt.semilogx(v_array_downsampled, xi_g_optimized, color='tab:orange', marker='o', label= r'$\xi_G$ fit @ z = '+str(z_target[redshift_index]))
-        #     plt.vlines(dv, 0, xi_g_optimized.max(), ls='--', color='black', label='dv = '+str(dv))
-        #     plt.xlabel('v (km/s)')
-        #     plt.ylabel(r'$\xi$')
-        #     plt.title('downsampled fit (# v-pts:'+str(downsample_size)+') - method: least squares')
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.grid()
-        #     plt.savefig(rf'{safe_z}_xiG_Fit.png')
-        ##############################################
-
-        
+       
         xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], xi_g_i, sigma2, tau0, tau1, nu, z0) for xi_g_i in xi_g_optimized])
-
-        dif_xi_f = xi_f_target - xi_f_optimized
-        abs_dif_xi_f = np.abs(dif_xi_f)
-        max_y = dif_xi_f[np.argmax(abs_dif_xi_f)] 
-        max_x = v_array_downsampled[np.argmax(abs_dif_xi_f)]
-
         
         ##############################################
         if args.plot_xif_fit:
-            print(rf'Saving: {safe_z}_xi_f_fit_residual.png')
-            plt.figure()
-            plt.semilogx(v_array_downsampled, xi_f_target, label = r'$\xi_F$ Target', color = 'tab:blue', alpha=0.5)
-            plt.semilogx(v_array_downsampled, xi_f_optimized, label=r"$\xi_F$ Fit", color="tab:orange", ls='--', marker='o')
-            plt.axvline(x=dv, color='black', linestyle='--', label=f"dv: {dv:.2f} km/s")
-            plt.legend()
-            plt.xlabel('v [km/s]')
-            plt.ylabel(r'$\xi_F$')
-            plt.title(rf'$\xi_F$ Fit vs Data  (z = {z_target[redshift_index]})')
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_xi_f_fit.png')
-    
-            plt.figure()
-            plt.semilogx(v_array_downsampled, dif_xi_f, label = 'z = '+str(z_target[redshift_index]), color = 'tab:blue')
-            plt.axvline(x=dv, color='black', linestyle='--', label=f"dv: {dv:.2f} km/s")
-            plt.xlabel('v [km/s]')
-            plt.ylabel(r'$\Delta \xi$')
-            plt.legend()
-            plt.title(r"$\xi_F$ Residual (Model - Fit)")
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_xi_f_fit_residual.png')
+            plot_xif_fit(safe_z,  v_array_downsampled, 
+                         xi_f_target, xi_f_optimized, dv)
         ##############################################
-
         
-        # extend xi_g fit to zero 
+        # extend the xi_g fit to zero 
         linear_extrapolation = interp1d(v_array_downsampled, xi_g_optimized, kind='linear', fill_value="extrapolate")
         zero_point = linear_extrapolation(0)
         print(f"zero_point: {zero_point}")
@@ -615,25 +701,12 @@ def main():
         # save (v_extrapolated, xi_g_extrapolated) to txt file
         export_data = np.column_stack((v_extrapolated, xi_g_extrapolated))
         np.savetxt(rf'{safe_z}_output.txt', export_data, fmt="%.6f", delimiter="\t", header="Velocity\tXi_G_fit")
-        
 
         ##############################################
         if args.plot_xig_fit:
-            print(rf'Saving: {safe_z}_xi_G_fit.png')
-            plt.figure()
-            plt.plot(v_array_downsampled, xi_g_optimized, 'o', label=rf'$\xi_g$ fit')
-            plt.plot(0, zero_point, 'ro', label=f'Fixed Point (0, {zero_point:.3f})')
-            plt.plot(v_extrapolated, xi_g_extrapolated, '-', label='CS Extrapolation')
-            plt.xscale('log')  # Log-scale to visualize properly
-            plt.xlabel('v [km/s]')
-            plt.ylabel(r'$\xi_g$')
-            plt.legend()
-            plt.grid()
-            plt.ylim(None, xi_g_extrapolated.max()+0.1)
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_xi_G_fit.png')
+            plot_xig_fit(safe_z, v_array_downsampled, xi_g_optimized, 
+                         zero_point, v_extrapolated, xi_g_extrapolated)
         ##############################################
-
         
         # recover xi_f
         xi_f_optimized_extrapolated = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g_extrapolated])
@@ -642,22 +715,12 @@ def main():
         cs = CubicSpline(v_extrapolated, xi_f_optimized_extrapolated)  
         xif_fine = cs(v_fine)  
 
-        
         ##############################################
         if args.plot_xif_recovered:
-            print(rf'Saving: {safe_z}_xi_f_recovery.png')
-            plt.figure()
-            plt.semilogx(v_fine, xif_fine, label='re-interp., N = '+str(v_fine.size), color='tab:green', lw=5, alpha=0.3)
-            plt.semilogx(v_array_downsampled, xif_target_downsampled, label='downsampled Target, N =' +str(downsample_size), ls='-', marker='o', color='tab:blue')
-            plt.semilogx(v_extrapolated, xi_f_optimized_extrapolated, label=r"$\xi_F$ Fit, N = "+str(xi_f_optimized.size), color="tab:orange", ls='--')
-            plt.axvline(x=dv, color='black', linestyle='--', label=f"dv: {dv:.2f}")
-            plt.xlabel('v [km/s]')
-            plt.ylabel(r'$\xi_F$')
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_xi_f_recovery.png')
+             plot_xi_f_recovered(safe_z, v_fine, xif_fine, v_array_downsampled, 
+                                 xif_target_downsampled, v_extrapolated, 
+                                 xi_f_optimized_extrapolated, dv)
         ##############################################
-
         
         # recover P_F (k)
         dv_fine = np.diff(v_fine) 
@@ -667,39 +730,13 @@ def main():
         fit_k_arr = 2 * np.pi * np.fft.rfftfreq(len(xif_fine), d=new_dv)
         
         p1d_precision = 1e-1
-        # w_k = (k_arr > 1e-4) & (k_arr < 0.05)                 # Window for k_array
-        w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)                 # Window for k_array
+        w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)     # Window for k_array
         w_fit_k = (fit_k_arr > 1e-4) & (fit_k_arr < 0.05)         # Window for fit_k_arr
         w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.05)  # Window for k_array_fine
-        # ptrue = P1D_array[:, w_k].ravel()
         ptrue = p1d_input[w_k]
         e_p1d = p1d_precision * ptrue + 1e-8
 
-        
-        ##############################################
-        # if args.plot_recovered_power:
-        #     plt.figure()
-        #     plt.errorbar(k_arr[w_k], P1D_array[redshift_index, w_k], e_p1d[redshift_index], 
-        #                  alpha=0.01, color='tab:blue')
             
-        #     plt.loglog(k_arr[w_k], P1D_array[redshift_index, w_k], color='tab:blue', 
-        #                label=r'Input model, N = '+str(numvpoints))
-            
-        #     plt.loglog(k_array_fine[w_k_fine], p1d_fine[w_k_fine], 
-        #                label='interpolated / target, z='+str(z_target[redshift_index])+
-        #                ', N='+str(new_size), color='tab:green', lw=3, alpha=0.7)
-            
-        #     plt.loglog(fit_k_arr[w_fit_k], fit_power[w_fit_k], 
-        #                label = 'xi_f best fit, N = '+str(downsample_size), color='tab:orange', ls='--')
-        #     plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
-        #     plt.ylabel(r'$P_{1D}(k)$, at z = '+str(z_target[redshift_index]))
-        #     plt.xlabel(r'k $[km/s]^{-1}$')
-        #     plt.legend(loc='lower left')
-            # plt.tight_layout()
-        #     plt.savefig(rf'{safe_z}_recovered_power_half.png')
-        ##############################################
-
-        
         # mirror xi_f and then recover P1D
         v_spacing = v_fine[1] - v_fine[0]  # Compute the step size
         v_mirrored = np.concatenate([v_fine, v_fine + v_fine[-1] + v_spacing])
@@ -715,52 +752,17 @@ def main():
         # w_k = (k_array_input > 1e-4) & (k_array_input < 0.1)  
         # w_fit_k = (mirrored_fit_k_arr > 1e-4) & (mirrored_fit_k_arr < 0.1) 
         # w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.1) 
-
         
         # Compute residual
         fit_power_interp_2 = np.interp(k_array_input, mirrored_fit_k_arr, mirrored_fit_power)
         delta_P = np.real((p1d_input.real - fit_power_interp_2.real) / p1d_input.real)
         delta_P_real = delta_P.real
-
-
         
         ##############################################
         if args.plot_recovered_power:
-            print(rf'Saving: {safe_z}_recovered_power.png')
-            temp_k = k_array_input[w_k]
-            # temp_p = P1D_array[redshift_index, w_k]
-            temp_p = p1d_input[w_k]
-            temp_e = np.full_like(temp_k, e_p1d[redshift_index])
-            log_k_values = np.log10(temp_k)  # Take log of k-values
-            log_k_min = np.min(log_k_values)
-            log_k_max = np.max(log_k_values)
-            alpha_values = 0.05 + (1 - 0.2) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
-            plt.figure()
-            for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
-                plt.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
-            plt.loglog(k_array_input[w_k], p1d_input[w_k], color='tab:blue', 
-                       label=f'Model')#, N = {numvpoints}')
-            plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k], 
-                       color='tab:orange', ls='--', label = f'Best Fit') #, N = {downsample_size}')
-            plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
-            plt.ylabel(rf'$P(k)$   (z = {z_target[redshift_index]})')
-            plt.xlabel(r'k $[km/s]^{-1}$')
-            plt.legend(loc='lower left')
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_recovered_power.png')
-
-            print(rf'Saving: {safe_z}_power_residual.png')
-            plt.figure()
-            plt.semilogx(k_array_input, delta_P_real, label = f"(Model - Best Fit) / Model")
-            plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
-            plt.xlim([10e-5,10e-2])
-            plt.ylim(-delta_P.max(),delta_P.max())
-            plt.xlabel(r'k $[km/s]^{-1}$')
-            plt.ylabel(rf"$\Delta$ P / P   (z = {z_target[redshift_index]})")
-            plt.legend()
-            plt.grid()
-            plt.tight_layout()
-            plt.savefig(rf'{safe_z}_power_residual.png')          
+            plot_recovered_power(safe_z, k_array_input, p1d_input, w_k, 
+                                 mirrored_fit_k_arr, mirrored_fit_power, 
+                                 w_fit_k, e_p1d, redshift_index, delta_P_real)        
         ##############################################
 
 if __name__ == "__main__":
