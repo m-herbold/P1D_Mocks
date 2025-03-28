@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from iminuit import Minuit
 from scipy.optimize import minimize
 from scipy.optimize import least_squares
@@ -215,8 +216,106 @@ def compute_velocity_properties(k_array):
 
     return dv, numvpoints
 
+##########################################################
+
+def process_power_data(z_target, power_file=None):
+    if power_file: 
+        print('\n(P,k,z) file provided, using as target P1D')
+        grouped_data, zlist = process_power_file(power_file) 
+
+        if not grouped_data:
+            print("Error: Failed to process power file.")
+            return None, None, None, None, None
+
+        P1D_array = []
+        k_array = []
+        dv_array = []
+        numvpoints_array = []
     
+        for z in z_target:
+            if z in grouped_data:
+                k_values = np.array(grouped_data[z]['k'])
+                P1D_values = np.array(grouped_data[z]['P1D'])
+
+                if k_values.size == 0:
+                    print(f"Warning: k_values is empty for redshift {z}")
+
+                k_array.append(k_values)
+                P1D_array.append(P1D_values)
+                
+                # Compute velocity properties
+                dv, numvpoints = compute_velocity_properties(k_values)
+                dv_array.append(dv)
+                numvpoints_array.append(numvpoints)
+            else:
+                print(f"Warning: No data found for redshift {z}")
+                sys.exit(1)   
+
+        # Convert lists to arrays
+        P1D_array = np.array(P1D_array, dtype=object)
+        k_array = np.array(k_array, dtype=object)
+        dv_array = np.array(dv_array)
+        numvpoints_array = np.array(numvpoints_array)
+                
+    else:
+        print("No (P,k,z) file provided, using default model (PD13Lorentz_DESI_EDR)")
+        k_array = k_arr
+        zlist = z_target
+        P1D_array = PD13Lorentz_DESI_EDR(z_target)
+
+        # Create dv and numvpoints arrays with default values
+        dv_array = np.full(len(zlist), default_dv)
+        numvpoints_array = np.full(len(zlist), default_numvpoints)
+
+        # Check if k_array and P1D_array have matching lengths for each redshift
+        for i, z in enumerate(zlist):
+            if len(k_array) != len(P1D_array[i]):
+                print(f"Error: Mismatch - k array has {len(k_array)} elements, but P1D array has {len(P1D_array[i])} elements.")
+                return None, None, None, None, None
+
+    print("Power spectrum data successfully assigned.")
+    return k_array, P1D_array, dv_array, numvpoints_array
+
+
+def scale_input_power(redshift_index, k_array, P1D_array, power_file=None):
+    if power_file:
+            k_array_input = k_array[redshift_index]
+            k_array_input = np.array(k_array_input, dtype=float)
+            p1d_input = P1D_array[redshift_index]
+    else:
+        k_array_input = k_array[1:]
+        p1d_input = P1D_array[redshift_index][1:]
+    return k_array_input, p1d_input
+    
+
+def process_flux_data(flux_file=None):
+    if flux_file:
+        print('\n(F,z) file provided, using as target mean flux')
+        try:
+            flux_z_array, flux_array = read_data(flux_file, expect_two_columns=True)
+            flux_model = 'User Input'
+        except Exception as e:
+            print(f"Error reading flux file: {e}")
+            return
+    else:
+        print(f"No (F,z) file provided, using default model (Turner et al., 2024)\n")
+        flux_array = turner24_mf(flux_fitting_z_array)
+        flux_z_array = flux_fitting_z_array
+        flux_model = 'Turner et al., 2024'
+    
+    if len(flux_z_array) != len(flux_array):
+        print(f"Error: Mismatch - z array has {len(flux_z_array)} elements, but flux array has {len(flux_array)} elements.")
+        return
+
+    print("Flux data successfully assigned.")
+    return flux_z_array, flux_array, flux_model
+
+
+##########################################################
+
 def fit_mean_flux(flux_array, flux_z_array, z0):
+    print('\n###  Fitting Mean Flux Parameters  ###\n')
+
     flux_fit_precision = 1e-5
     Err_flux_fit = flux_array * flux_fit_precision + 1e-8
 
@@ -230,6 +329,13 @@ def fit_mean_flux(flux_array, flux_z_array, z0):
     mini = Minuit(flux_fit_cost, tau0_0, tau1_0, nu_0, sigma2_0)
     mini.errordef = Minuit.LEAST_SQUARES
     mini.migrad()
+    
+    tau0, tau1, nu, sigma2 = mini.values
+
+    print(f'tau0 = {tau0}')
+    print(f'tau1 = {tau1}')
+    print(f'nu = {nu}')
+    print(f'sigma2 = {sigma2}')
 
     return mini.values
 
@@ -243,7 +349,7 @@ def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
     tau0, tau1: float
         Amplitude (tau0) and power (tau1) of optical depth
     nu: float
-        Slope of growth (a(z) -> D(z))
+        Slope of growth (a(z))
     xi_gauss: float
         Single xi_g value from Gaussian random field
     """
@@ -290,18 +396,18 @@ def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
     array-like
         Residuals between calculated and target xi_f.
     """
-    xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g])
+    xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1, 
+                                                         nu, sigma2, z0) for xi_g_i in xi_g])
     return xi_f_calculated - xi_f_target
 
 
 #######################################
 
-
-def plot_mean_flux(z, target_flux, bestfit_values, flux_model, z0 = PD13_PIVOT_Z): 
+def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2, flux_model, z0 = PD13_PIVOT_Z): 
     print('Saving: Mean_Flux_Fit.png')
-    tau0, tau1, nu, sigma2 = bestfit_values
+    # tau0, tau1, nu, sigma2 = bestfit_values
     plt.figure()
-    plt.plot(z, lognMeanFluxGH(z, *bestfit_values, z0), color='tab:blue', 
+    plt.plot(z, lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0), color='tab:blue', 
              ls='-', label='Best Fit', lw='6', alpha = 0.5)
     plt.plot(z, target_flux, color='black', ls='--', label=f'Model: {flux_model}')
     plt.xlabel('z')
@@ -327,7 +433,8 @@ def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
     plt.savefig(rf'{z}_P1D_target.png')
 
 
-def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled, xif_target_downsampled, dv):
+def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled, 
+                    xif_target_downsampled, dv):
     print(rf'Saving: {z}_xi_F_target.png')
     plt.figure()
     plt.semilogx(new_v_array[1:], xif_interp_fit[1:], 
@@ -418,50 +525,6 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
     plt.savefig(rf'{z}_xi_f_recovery.png')
 
 
-# def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr, 
-#                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
-#     print(rf'Saving: {z}_recovered_power.png')
-#     temp_k = k_array_input[w_k]
-#     temp_p = p1d_input[w_k]
-#     temp_e = np.full_like(temp_k, e_p1d[z_id])
-    
-#     log_k_values = np.log10(temp_k) 
-#     log_k_min = np.min(log_k_values)
-#     log_k_max = np.max(log_k_values)
-#     alpha_values = 0.05 + (1 - 0.2) * (log_k_max - log_k_values) / (log_k_max - log_k_min)
-
-#     plt.figure()
-#     for k_val, p_val, err, alpha_val in zip(temp_k, temp_p, temp_e, alpha_values):
-#                 plt.errorbar(k_val, p_val, yerr=err, color='tab:blue', alpha=alpha_val)
-#     plt.loglog(k_array_input[w_k], p1d_input[w_k].real, color='tab:blue', 
-#                        label=f'Model') 
-#     plt.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real, 
-#                        color='tab:orange', ls='--', label = f'Best Fit') 
-#     plt.axvspan(0.05, 0.1, alpha=0.2, color='grey')
-#     plt.ylim(10e-2, mirrored_fit_power[w_fit_k].real.max() +10)
-#     plt.ylabel(rf'$P(k)$   (z = {z})')
-#     plt.xlabel(r'k $[km/s]^{-1}$')
-#     plt.legend(loc='lower left')
-#     plt.tight_layout()
-#     plt.savefig(rf'{z}_recovered_power.png')
-    
-#     print(rf'Saving: {z}_power_residual.png')
-#     plt.figure()
-#     plt.semilogx(k_array_input, delta_P_real, label = f"(Model - Best Fit) / Model")
-#     plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
-#     plt.xlim([10e-5,10e-2])
-#     plt.ylim(-delta_P_real.max(),delta_P_real.max())
-#     plt.xlabel(r'k $[km/s]^{-1}$')
-#     plt.ylabel(rf"$\Delta$ P / P   (z = {z})")
-#     plt.legend()
-#     plt.grid()
-#     plt.tight_layout()
-#     plt.savefig(rf'{z}_power_residual.png')   
-
-
-
-from matplotlib.gridspec import GridSpec
-
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr, 
                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
     print(rf'Saving: {z}_recovered_power.png')
@@ -535,104 +598,27 @@ def main():
     args = parser.parse_args()
 
     z0 = PD13_PIVOT_Z
-    
-    ### Process redshift target (required) ###
+
+    ### Process Input Data ###
+    # z_target (required)
     try:
         z_target = parse_redshift_target(args.z_target)
     except Exception as e:
         print(f"Error reading redshift file: {e}")
         return
+    # power file (optional)
+    k_array, P1D_array, dv_array, numvpoints_array = process_power_data(z_target, args.power_file)
+    # flux file  (optional) 
+    flux_z_array, flux_array, flux_model = process_flux_data(args.flux_file)
 
-    
-    ### Process power data (optional) ###
-    grouped_data, zlist = process_power_file(args.power_file) 
-
-    if not grouped_data:
-        # If no P1D file provided, use default model
-        k_array = k_arr
-        zlist = z_target
-        P1D_array = PD13Lorentz_DESI_EDR(z_target)
-        
-        # Create dv and numvpoints arrays filled with default values
-        dv_array = np.full(len(zlist), default_dv)
-        numvpoints_array = np.full(len(zlist), default_numvpoints)
-
-        # Check if k_array and P1D_array have matching lengths for each redshift
-        for i, z in enumerate(zlist):
-            if len(k_array) != len(P1D_array[i]):
-                print(f"Error: Mismatch - k array has {len(k_array)} elements, but P1D array has {len(P1D_array[i])} elements.")
-                return
-    else: 
-        # process grouped data from file (if applicable)
-        print('\n(P,k,z) file provided, using as target P1D')
-    
-        P1D_array = []  
-        k_array = []  
-        dv_array = []
-        numvpoints_array = []
-    
-        for z in z_target:
-            if z in grouped_data:
-                k_values = np.array(grouped_data[z]['k'])
-                P1D_values = np.array(grouped_data[z]['P1D'])
-        
-                if k_values.size == 0:
-                    print(f"Warning: k_values is empty for redshift {z}")
-                
-                k_array.append(k_values)
-                P1D_array.append(P1D_values)
-                
-                # Compute velocity properties
-                dv, numvpoints = compute_velocity_properties(k_values)
-                dv_array.append(dv)
-                numvpoints_array.append(numvpoints)  
-            
-            else:
-                print(f"Warning: No data found for redshift {z}")
-                sys.exit(1)
-                
-        P1D_array = np.array(P1D_array, dtype=object)
-        k_array = np.array(k_array, dtype=object)
-        dv_array = np.array(dv_array)
-        numvpoints_array = np.array(numvpoints_array)
-
-        
-    ### Process flux data  (optional) ###
-    if args.flux_file:
-        print('\n(F,z) file provided, using as target mean flux')
-        try:
-            flux_z_array, flux_array = read_data(args.flux_file, expect_two_columns=True)
-            flux_model = 'User Input'
-        except Exception as e:
-            print(f"Error reading flux file: {e}")
-            return
-    else:
-        print(f"No (F,z) file provided, using default model (Turner et al., 2024)\n")
-        flux_array = turner24_mf(flux_fitting_z_array)
-        flux_z_array = flux_fitting_z_array
-        flux_model = 'Turner et al., 2024'
-
-    if len(flux_z_array) != len(flux_array):
-        print(f"Error: Mismatch - z array has {len(flux_z_array)} elements, but flux array has {len(flux_array)} elements.")
-        return
-
-    print("\nData successfully assigned.")
-    
     
     ### FIT MEAN FLUX  ###
-    print('\n###  Fitting Mean Flux Parameters  ###\n')
-    
     tau0, tau1, nu, sigma2 = fit_mean_flux(flux_array, flux_z_array, z0)
-
-    print(f'tau0 = {tau0}')
-    print(f'tau1 = {tau1}')
-    print(f'nu = {nu}')
-    print(f'sigma2 = {sigma2}')
 
     ##############################################
     if args.plot_mean_flux:
         plot_mean_flux(flux_z_array, flux_array, 
-                       fit_mean_flux(flux_array, flux_z_array, z0), flux_model)
+                        tau0, tau1, nu, sigma2, flux_model)
     ##############################################    
 
     ###  FIT POWER  ###
@@ -646,17 +632,10 @@ def main():
         dv = dv_array[redshift_index]
         numvpoints = numvpoints_array[redshift_index]
         
-        # print('redshift index = '+str(redshift_index) + ', corresponding to z = '+str(z_target[redshift_index]))
         print(f"\nProcessing redshift: {z}\n")
         print(f'Mean Flux (z = {z}): {lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)[0]}')
 
-        if grouped_data:
-            k_array_input = k_array[redshift_index]
-            k_array_input = np.array(k_array_input, dtype=float)
-            p1d_input = P1D_array[redshift_index]
-        else: 
-            k_array_input = k_array[1:]
-            p1d_input = P1D_array[redshift_index][1:]
+        k_array_input, p1d_input = scale_input_power(redshift_index, k_array, P1D_array, args.power_file)
             
         # interpolate input power to a set size
         new_size = 2**20
@@ -676,7 +655,7 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:new_size] / dv
 
         # downsample xi_f (logarithmically)
-        downsample_size = 2**7
+        downsample_size = 2**5
 
         velocity_abs = np.abs(new_v_array[1:])  
         log_v_min, log_v_max = np.log10(1 + velocity_abs.min()), np.log10(1 + velocity_abs.max())
@@ -703,7 +682,8 @@ def main():
         xi_f_target = xif_target_downsampled
         xi_g_initial_guess = np.full(xi_f_target.size, 0.1)
         
-        result = least_squares(objective, xi_g_initial_guess, args=(z_target[redshift_index], xi_f_target, tau0, tau1, nu, sigma2, z0))
+        result = least_squares(objective, xi_g_initial_guess, args=(z_target[redshift_index], 
+                                                                    xi_f_target, tau0, tau1, nu, sigma2, z0))
         xi_g_optimized = result.x
 
         time_2 = time.strftime("%H:%M:%S")
@@ -717,9 +697,11 @@ def main():
 
         print(f"sigma2 from Mean Flux fit:      {sigma2}")
         print(f"Calculated sigma2 from Xi_G(0): {xi_g_optimized[0]}")
-        print(f"Difference:                     {np.abs(sigma2-xi_g_optimized[0])}\n")
+        print(f"Difference:                     {np.abs(sigma2-xi_g_optimized[0])}")
        
-        xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], xi_g_i, sigma2, tau0, tau1, nu, z0) for xi_g_i in xi_g_optimized])
+        xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], 
+                                                            xi_g_i, sigma2, tau0, tau1, nu, z0) 
+                                   for xi_g_i in xi_g_optimized])
         
         ##############################################
         if args.plot_xif_fit:
@@ -728,7 +710,8 @@ def main():
         ##############################################
         
         # extend the xi_g fit to zero 
-        linear_extrapolation = interp1d(v_array_downsampled, xi_g_optimized, kind='linear', fill_value="extrapolate")
+        linear_extrapolation = interp1d(v_array_downsampled, xi_g_optimized, 
+                                        kind='linear', fill_value="extrapolate")
         zero_point = linear_extrapolation(0)
         print(f"zero_point: {zero_point}")
        
@@ -743,7 +726,8 @@ def main():
 
         # save (v_extrapolated, xi_g_extrapolated) to txt file
         export_data = np.column_stack((v_extrapolated, xi_g_extrapolated))
-        np.savetxt(rf'{safe_z}_output.txt', export_data, fmt="%.6f", delimiter="\t", header="Velocity\tXi_G_fit")
+        np.savetxt(rf'{safe_z}_output.txt', export_data, fmt="%.6f", 
+                   delimiter="\t", header="Velocity\tXi_G_fit")
 
         ##############################################
         if args.plot_xig_fit:
@@ -752,7 +736,9 @@ def main():
         ##############################################
         
         # recover xi_f
-        xi_f_optimized_extrapolated = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], xi_g_i, tau0, tau1, nu, sigma2, z0) for xi_g_i in xi_g_extrapolated])
+        xi_f_optimized_extrapolated = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index], 
+                                                                         xi_g_i, tau0, tau1, nu, sigma2, z0) 
+                                                for xi_g_i in xi_g_extrapolated])
 
         v_fine = np.linspace(v_extrapolated.min(), v_extrapolated.max(), 2**20) 
         cs = CubicSpline(v_extrapolated, xi_f_optimized_extrapolated)  
