@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from iminuit import Minuit
 from scipy.optimize import least_squares
-from iminuit.cost import LeastSquares
 from scipy.interpolate import CubicSpline
 from scipy.interpolate import interp1d
 from astropy.io import fits
@@ -94,8 +93,7 @@ def parse_redshift_target(input_value):
         z_value = float(input_value)
         return np.array([z_value])  # Convert single float to an array
     except ValueError:
-        raise ValueError(
-            "Invalid input for --redshift_bins. Provide a valid .txt/.fits file or a single float value.")
+            ("Invalid input for --redshift_bins. Provide a valid .txt/.fits file or a single float value.")
 
 
 def turner24_mf(z):
@@ -210,7 +208,7 @@ def compute_velocity_properties(k_array):
             "k_array must have at least two points to determine spacing.")
 
     # Determine dv
-    k_min, k_max = np.min(k_array), np.max(k_array)
+    # k_min, k_max = np.min(k_array), np.max(k_array)
 
     # Check if k-array is uniformly spaced
     dk_values = np.diff(k_array)
@@ -308,7 +306,7 @@ def process_flux_data(flux_file=None):
             print(f"Error reading flux file: {e}")
             return
     else:
-        print(f"No (F,z) file provided, using default model (Turner et al., 2024)")
+        print("No (F,z) file provided, using default model (Turner et al., 2024)")
         flux_array = turner24_mf(flux_fitting_z_array)
         flux_z_array = flux_fitting_z_array
         flux_model = 'Turner et al., 2024'
@@ -645,8 +643,8 @@ def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
 
     dif_xi_f = xi_f_target - xi_f_optimized
     abs_dif_xi_f = np.abs(dif_xi_f)
-    max_y = dif_xi_f[np.argmax(abs_dif_xi_f)]
-    max_x = v_array_downsampled[np.argmax(abs_dif_xi_f)]
+    # max_y = dif_xi_f[np.argmax(abs_dif_xi_f)]
+    # max_x = v_array_downsampled[np.argmax(abs_dif_xi_f)]
 
     print(rf'Saving: {z}_xi_F_fit_residual.png')
     plt.figure()
@@ -667,7 +665,7 @@ def plot_xig_fit(z, v_array_downsampled, xi_g_optimized,
     print(rf'Saving: {z}_xi_G_fit.png')
     plt.figure()
     plt.plot(v_array_downsampled, xi_g_optimized,
-             'o', label=rf'$\xi_g$ Fit')
+             'o', label=r'$\xi_g$ Fit')
     plt.plot(0, zero_point, 'ro',
              label=f'Fixed Point (0, {zero_point:.3f})')
     plt.plot(v_extrapolated, xi_g_extrapolated, '-', label='CS Extrapolation')
@@ -903,7 +901,6 @@ def main():
         # Set windows for plotting
         w_k = (k_array_input > 1e-4) & (k_array_input < 0.05)
         w_fit_k = (fit_k_arr > 1e-4) & (fit_k_arr < 0.05)
-        w_k_fine = (k_array_fine > 1e-4) & (k_array_fine < 0.05)
 
         p1d_precision = 1e-1
         ptrue = p1d_input[w_k]
