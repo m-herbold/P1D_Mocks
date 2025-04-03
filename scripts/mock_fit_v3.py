@@ -57,7 +57,23 @@ flux_fitting_z_array = np.linspace(1.8, 5.0, 500)
 
 
 def read_data(filename, expect_two_columns=False):
-    """Reads data from a file (.txt or .fits). Returns a 1D or 2D array."""
+    """
+    Reads data from a .txt or .fits file and returns a 1D or 2D array.
+
+    Args:
+        filename (str): Name of the input file. Supported formats: .txt, .fits.
+        expect_two_columns (bool): If True, ensures the data has exactly two columns
+                                   and returns them as separate arrays.
+
+    Returns:
+        np.ndarray: A 1D array if `expect_two_columns` is False.
+        tuple[np.ndarray, np.ndarray]: Two 1D arrays (columns) if `expect_two_columns` is True.
+
+    Raises:
+        ValueError: If an unsupported file format is provided.
+        ValueError: If `expect_two_columns` is True but the file does not contain exactly two columns.
+        ValueError: If `expect_two_columns` is False but the data is not 1D.
+    """
     if filename.endswith('.txt'):
         data = np.loadtxt(filename)
     elif filename.endswith('.fits'):
@@ -85,24 +101,82 @@ def read_data(filename, expect_two_columns=False):
 
 
 def parse_redshift_target(input_value):
-    """Parses the redshift target argument, allowing either a file or a single float value."""
-    if os.path.isfile(input_value):  # If it's a file, read the data
+    """
+    Parses the redshift target argument, allowing:
+    - A single float value (e.g., "2.0").
+    - A comma-separated list of redshift values (e.g., "2.0,2.2,2.4").
+    - A file containing redshift values (.txt)
+
+    Args:
+        input_value (str): file path, single value, or comma-separated string of  values.
+
+    Returns:
+        np.ndarray: An array of target redshift values.
+
+    Raises:
+        ValueError: If the input is neither a valid file nor a properly formatted float/comma-separated list.
+    """
+    # Check if the input is a file
+    if os.path.isfile(input_value):
         return read_data(input_value)
+
+    # Check if input contains multiple comma-separated redshifts
+    if "," in input_value:
+        try:
+            redshifts = np.array([float(z.strip())
+                                 for z in input_value.split(",")])
+            return redshifts
+        except ValueError:
+            raise ValueError(
+                "Invalid input for --redshift_bins. Ensure all values are valid floats separated by commas."
+            )
+
+    # Otherwise, try to parse it as a single float
     try:
-        # Try converting input to a float
-        z_value = float(input_value)
-        return np.array([z_value])  # Convert single float to an array
+        return np.array([float(input_value)])
     except ValueError:
-            ("Invalid input for --redshift_bins. Provide a valid .txt/.fits file or a single float value.")
+        raise ValueError(
+            "Invalid input for --redshift_bins. Provide a valid .txt/.fits file, "
+            "a single float value, or a comma-separated list of floats."
+        )
 
 
 def turner24_mf(z):
+    """
+    Computes the mean flux based on the Turner+2024 model.
+
+    Args:
+        z (float or np.ndarray): The target redshift value.
+
+    Returns:
+        float or np.ndarray: The mean flux value(s) corresponding to the input redshift(s).
+    """
     tau_0 = -2.46e-3
     gamma = 3.62
     return np.exp(tau_0 * (1 + z)**gamma)
 
 
 def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
+    """
+    Evaluates the PD13 Lorentzian model for the 1D power spectrum (P1D).
+
+    This function computes the P1D based on the PD13 Lorentzian model
+    for given wavenumbers, redshifts, and fitting parameters (A,n,alpha,B,beta).
+
+    Args:
+        X (tuple[np.ndarray, np.ndarray]): A tuple containing:
+            - k (np.ndarray): Array of wavenumbers.
+            - z (np.ndarray or None): Array of redshifts (or None for a single evaluation).
+        A (float): Amplitude scaling factor.
+        n (float): Power-law index for k dependence.
+        alpha (float): Logarithmic correction to the power-law.
+        B (float): Power-law index for redshift dependence.
+        beta (float): Logarithmic correction for redshift evolution.
+        lmd (float): Lorentzian damping factor.
+
+    Returns:
+        np.ndarray: Evaluated P1D values for the given k and z inputs.
+    """
     k, z = X
     q0 = k / PD13_PIVOT_K + 1e-10
 
@@ -117,6 +191,19 @@ def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
 
 
 def PD13Lorentz_DESI_EDR(zlist):
+    """
+    Evaluates the PD13 Lorentzian model for DESI EDR at given redshifts.
+
+    This function computes the 1D power spectrum (P1D) for each target redshift
+    using DESI Early Data Release (EDR) parameter values.
+
+    Args:
+        zlist (np.ndarray): Array of target redshifts to evaluate.
+
+    Returns:
+        np.ndarray: A 2D array where each row corresponds to the evaluated P1D
+                    for a given redshift in `zlist`, with shape (len(zlist), len(k_arr)).
+    """
     # Start with an empty array the size / shape of input k and z arrays
     p1d_edr_fit = np.empty((zlist.size, k_arr.size))
 
@@ -128,32 +215,132 @@ def PD13Lorentz_DESI_EDR(zlist):
 
 
 def a2_z(zp, nu=2.82, z0=PD13_PIVOT_Z):
+    """
+    Computes the redshift-dependent scaling factor a^2(z).
+
+    This function calculates a^2(z) using a power-law scaling relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): The redshift(s) at which to evaluate the scaling factor.
+        nu (float, optional): Exponent controlling the redshift evolution (default: 2.82).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed a^2(z) scaling factor.
+    """
     return np.power((1. + zp) / (1.+z0), -nu)
 
 
 def a_z(zp, nu=2.82, z0=PD13_PIVOT_Z):
+    """
+    Computes the redshift-dependent scaling factor a(z).
+
+    This function calculates a(z) as the square root of a^2(z), following a
+    power-law scaling relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): The redshift(s) at which to evaluate the scaling factor.
+        nu (float, optional): Exponent controlling the redshift evolution (default: 2.82).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed a(z) scaling factor.
+    """
     return np.sqrt(np.power((1. + zp) / (1.+z0), -nu))
 
 
 def t_of_z(zp, tau0=0.55, tau1=5.1, z0=PD13_PIVOT_Z):
+    """
+    Computes the optical depth as a function of redshift.
+
+    This function calculates the optical depth, tau(z), based on a power-law
+    scaling relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): The redshift(s) at which to evaluate the optical depth.
+        tau0 (float, optional): The normalization factor for optical depth (default: 0.55).
+        tau1 (float, optional): The exponent controlling the redshift evolution of optical depth (default: 5.1).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed optical depth(s) for the given redshift(s).
+    """
     return tau0 * np.power((1. + zp) / (1.+z0), tau1)
 
 
 def n_z(zp, nu, sigma2, z0=PD13_PIVOT_Z):
+    """
+    Applies a lognormal transform to approximate the HI column density as a function of redshift.
+
+    This function computes a redshift-dependent factor based on a lognormal distribution,
+    which is commonly used to approximate the HI column density in cosmological models.
+
+    Args:
+        zp (float or np.ndarray): The redshift(s) at which to evaluate the transform.
+        nu (float): Exponent controlling the redshift evolution of the distribution.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The lognormal transform factor, approximating the HI column density.
+    """
     return np.exp(-a2_z(zp, nu, z0) - sigma2)
 
 
 def x_of_z(zp, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
+    """
+    Modifies the optical depth for flux calculations by incorporating z-dependence.
+
+    Args:
+        zp (float or np.ndarray): The redshift(s) at which to evaluate.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed x(z) factor for modifying the flux.
+    """
     return t_of_z(zp, tau0, tau1, z0) * np.exp(-a2_z(zp, nu, z0) * sigma2)
 
 
 def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
+    """
+    Calculates the z-dependent flux.
+
+    Args:
+        delta_g (float): Perturbations in the Gaussian field.
+        z (float or np.ndarray): The redshift(s) at which to evaluate the flux.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed flux at the given redshift(s).
+    """
     e1 = np.exp(2 * a2_z(z, nu / 2, z0) * np.sqrt(2 * sigma2) * delta_g)
     e2 = x_of_z(z, tau0, tau1, nu, sigma2, z0)
     return np.exp(-e2 * e1)
 
 
 def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
+    """
+    Computes the mean flux using Gaussian-Hermite quadrature.
+
+    Args:
+        z (float or np.ndarray): The redshift(s) at which to evaluate the mean flux.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed mean flux for the given redshift(s) using Gaussian-Hermite quadrature.
+    """
     XIXI, ZZ = np.meshgrid(gausshermite_xi_deg, z)
     Y = Flux_d_z(XIXI, ZZ, tau0, tau1, nu, sigma2, z0)
     result = np.dot(Y, gausshermite_wi_deg)
@@ -162,6 +349,23 @@ def lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
 
 
 def process_power_file(power_file):
+    """
+    Processes a user input (.txt) file containing values for P1D and k for different redshift(s).
+
+    Args:
+        power_file (str or None): Path to the power spectrum file containing columns for redshift (z),
+                                   wave number (k), and power spectrum values (P1D). If None, a default model
+                                   (DESI EDR) is used instead.
+
+    Returns:
+        dict: A dictionary with redshift as keys and corresponding lists of `k` and `P1D` values as values.
+              The dictionary structure is {z: {'k': [k1, k2, ...], 'P1D': [P1D1, P1D2, ...]}}.
+        np.ndarray: A sorted array of unique redshift values from the input file, or an empty array if the file
+                    is not provided or the data is invalid.
+
+    Raises:
+        Exception: If there is an error reading the power spectrum file.
+    """
     if power_file:
         try:
             data = np.loadtxt(power_file)
@@ -192,14 +396,17 @@ def process_power_file(power_file):
 
 def compute_velocity_properties(k_array):
     """
-    Compute velocity grid properties from an input k_array.
+    Computes the velocity grid properties based on an input wave number array (k_array).
 
-    Input:
-        k_array 
+    Args:
+        k_array (np.ndarray): A 1D array of wave numbers (k), containing least two values.
 
     Returns:
-        dv (float): Velocity spacing
-        numvpoints (int): Number of velocity points
+        dv (float): The velocity spacing, computed based on the k_array spacing.
+        numvpoints (int): The total number of velocity points, equal to the length of `k_array`.
+
+    Raises:
+        ValueError: If the `k_array` contains fewer than two points, a ValueError is raised.
     """
     numvpoints = len(k_array)
 
@@ -221,10 +428,28 @@ def compute_velocity_properties(k_array):
 
     return dv, numvpoints
 
-##########################################################
-
 
 def process_power_data(z_target, power_file=None):
+    """
+    Processes the input power spectrum data and computes velocity properties for the target redshift(s).
+
+    Args:
+        z_target (array-like): A list or array of target redshifts for which power spectrum data should be processed.
+        power_file (str, optional): Path to a power spectrum file containing columns for redshift (z),
+                                     wave number (k), and power spectrum values (P1D). If `None`, a default model
+                                     (PD13Lorentz_DESI_EDR) is used.
+
+    Returns:
+        k_array (np.ndarray): A 1D array of wave numbers for each redshift in `z_target`.
+        P1D_array (np.ndarray): A 1D array of power spectrum values (P1D) corresponding to `k_array` for each redshift in `z_target`.
+        dv_array (np.ndarray): A 1D array of velocity spacings computed for each redshift.
+        numvpoints_array (np.ndarray): A 1D array of the number of velocity points for each redshift.
+
+    Raises:
+        SystemExit: If no data is found for any target redshift in the power spectrum file or if there is
+                    a mismatch between the k and P1D array lengths.
+        ValueError: If there is an error processing the power spectrum file.
+    """
     if power_file:
         print('\n(P,k,z) file provided, using as target P1D')
         grouped_data, zlist = process_power_file(power_file)
@@ -285,6 +510,20 @@ def process_power_data(z_target, power_file=None):
 
 
 def scale_input_power(redshift_index, k_array, P1D_array, power_file=None):
+    """
+    Scales the input P1D data to match the default PD13 model behavior for a given z.
+
+    Args:
+        redshift_index (int): Index corresponding to the target redshift in the P1D data.
+        k_array (np.ndarray): Array of wave numbers (k) for each redshift.
+        P1D_array (np.ndarray): Array of power spectrum values (P1D) for each redshift.
+        power_file (str, optional): Path to a user-provided P1D file. If not provided, the function
+                                    uses the default PD13 model data.
+
+    Returns:
+        k_array_input (np.ndarray): Array of k-values corresponding to the selected redshift index.
+        p1d_input (np.ndarray): Array of power spectrum values (P1D) corresponding to the selected redshift index.
+    """
     if power_file:
         k_array_input = k_array[redshift_index]
         k_array_input = np.array(k_array_input, dtype=float)
@@ -296,6 +535,22 @@ def scale_input_power(redshift_index, k_array, P1D_array, power_file=None):
 
 
 def process_flux_data(flux_file=None):
+    """
+    Processes the mean flux data, either from a user-provided file or from the default model.
+
+    Args:
+        flux_file (str, optional): Path to a user-provided flux data file. The file must have two columns: redshift (z)
+                                    and mean flux (F).
+
+    Returns:
+        flux_z_array (np.ndarray): Array of redshift values corresponding to the flux data.
+        flux_array (np.ndarray): Array of flux values corresponding to the redshift values.
+        flux_model (str): The source of the flux data, either 'User Input' (if a file was provided) or 'Turner et al., 2024'
+                          (if the default model is used).
+
+    Raises:
+        ValueError: If the number of elements in the redshift array does not match the number of flux values.
+    """
     if flux_file:
         print('\n(F,z) file provided, using as target mean flux')
         try:
@@ -320,9 +575,22 @@ def process_flux_data(flux_file=None):
     return flux_z_array, flux_array, flux_model
 
 
-##########################################################
+def fit_mean_flux(flux_array, flux_z_array, z0=PD13_PIVOT_Z):
+    """
+    Fits the mean flux parameters to the given flux and redshift values.
 
-def fit_mean_flux(flux_array, flux_z_array, z0):
+    Args:
+        flux_array (np.ndarray): Array of flux values corresponding to the redshift array.
+        flux_z_array (np.ndarray): Array of redshift values (z) corresponding to the flux array.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        tuple: A tuple containing the optimal values for the flux model parameters:
+            - tau0 (float): The best-fit value for the optical depth parameter.
+            - tau1 (float): The best-fit value for the power-law exponent parameter.
+            - nu (float): The best-fit value for the spectral index.
+            - sigma2 (float): The best-fit value for the variance parameter.
+    """
     print('\n###  Fitting Mean Flux Parameters  ###\n')
 
     flux_fit_precision = 1e-5
@@ -350,18 +618,21 @@ def fit_mean_flux(flux_array, flux_z_array, z0):
     return mini.values
 
 
-def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
+def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
     """
-    Arguments
-    ---------
-    z: float
-        Single redshift
-    tau0, tau1: float
-        Amplitude (tau0) and power (tau1) of optical depth
-    nu: float
-        Slope of growth (a(z))
-    xi_gauss: float
-        Single xi_g value from Gaussian random field
+    Calculates the flux correlation function from the Gaussian correlation function.
+
+    Args:
+        z (float): Redshift value.
+        xi_gauss (float): Gaussian correlation function value.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float: Flux correlation function corresponding to the input xi_gauss.
     """
     xi_sine = np.clip(xi_gauss / sigma2, -1, 1)
     xi_cosine = np.sqrt(1 - xi_sine**2)
@@ -388,31 +659,51 @@ def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0):
     return xi_f
 
 
-def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0):
+def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
     """
-    Compute the difference between the target xi_f values and the xi_f values
-    calculated from xi_g using lognXiFfromXiG_pointwise.
+    Computes the residuals between the target and calculated flux correlation functions.
 
-    Parameters
-    ----------
-    xi_g : array-like
-        Current guess for xi_g values.
-    z : float
-        Redshift at which xi_f is calculated.
-    xi_f_target : array-like
-        Target xi_f values, in this case, xif_edr_fit.
- 
-    Returns
-    -------
-    array-like
-        Residuals between calculated and target xi_f.
+    Args:
+        xi_g (array-like): Current guess for the Gaussian correlation function values.
+        z (float): Redshift value at which xi_f is calculated.
+        xi_f_target (array-like): Target flux correlation function values.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        array-like: Residuals (difference) between the calculated and target flux correlation function values.
     """
     xi_f_calculated = np.array([lognXiFfromXiG_pointwise(z, xi_g_i, tau0, tau1,
                                                          nu, sigma2, z0) for xi_g_i in xi_g])
     return xi_f_calculated - xi_f_target
 
 
-def solve_xi_optimized(z_target, redshift_index, size, xi_f_target, tau0, tau1, nu, sigma2, z0):
+def solve_xi_optimized(z_target, redshift_index, size, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
+    """
+    Solves for the optimized xi_G and xi_F values.
+
+    This function sovles for xi_G and xi_F optimized by minimizing the difference
+    between the calculated xi_F and the target xi_F using least squares.
+
+    Args:
+        z_target (array-like): Array of redshift values for which to calculate xi_f.
+        redshift_index (int): Index of the redshift value in the target array for a given calculation.
+        size (int): Number of points for the optimization.
+        xi_f_target (array-like): Target flux correlation function (xi_f) values.
+        tau0 (float): Normalization factor for optical depth.
+        tau1 (float): Exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        tuple: A tuple containing:
+            - xi_g_optimized (np.ndarray): Optimized xi_g values corresponding to the target xi_f.
+            - xi_f_optimized (np.ndarray): Optimized flux correlation function (xi_f) values.
+    """
     print('\n(Fitting xi_f)')
     print(f"N-Points:     {size}")
 
@@ -443,11 +734,25 @@ def solve_xi_optimized(z_target, redshift_index, size, xi_f_target, tau0, tau1, 
     xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index],
                                                         xi_g_i, sigma2, tau0, tau1, nu, z0)
                                for xi_g_i in xi_g_optimized])
-
     return xi_g_optimized, xi_f_optimized
 
 
 def extrapolate_xiG(v_array, xi_G, safe_z, save_cf):
+    """
+    Extrapolates the xi_G values to v = 0 and optionally saves the extended data.
+
+    Args:
+        v_array (np.ndarray): Array of velocity grid points.
+        xi_G (np.ndarray): Array of xi_G values corresponding to the velocity grid.
+        safe_z (str): Identifier for the redshift to be used in the output file name.
+        save_cf (str): Option to save the extrapolated data, can be 'half' to save or an empty string to skip.
+
+    Returns:
+        tuple: A tuple containing:
+            - v_extrapolated (np.ndarray): Extended velocity grid, including zero velocity.
+            - xi_g_extrapolated (np.ndarray): Extrapolated xi_G values, including the value at zero velocity.
+            - zero_point (float): Extrapolated value of xi_G at zero velocity.
+    """
     # Extrapolate xi_G to zero
     linear_extrapolation = interp1d(v_array, xi_G,
                                     kind='linear', fill_value="extrapolate")
@@ -477,6 +782,20 @@ def extrapolate_xiG(v_array, xi_G, safe_z, save_cf):
 
 
 def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
+    """
+    Mirrors the xi_G correlation function to create the full correlation function.
+
+    Args:
+        v_extrapolated (np.ndarray): Array of extended velocity grid points including v = 0.
+        xi_g_extrapolated (np.ndarray): Array of extrapolated xi_G values corresponding to the extended velocity grid.
+        safe_z (str): Identifier for the redshift, used in naming the output file.
+        save_cf (str): Option to save the mirrored data, can be 'full' to save or an empty string to skip.
+
+    Returns:
+        tuple: A tuple containing:
+            - v_extended (np.ndarray): Extended velocity grid, mirrored about zero.
+            - file_xig_extended (np.ndarray): Full xi_G correlation function, mirrored about zero.
+    """
     data = np.loadtxt(f"{safe_z}_xiG_half_output.txt")
     file_v = data[:, 0]         # First column
     file_xiG = data[:, 1]       # Second column
@@ -518,9 +837,21 @@ def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
     return v_extended, file_xig_extended
 
 
-###############################################
-
 def recover_power(k_arr, xi, v_arr, cf_size):
+    """
+    Recovers the P1D from the correlation function using FFT.
+
+    Args:
+        k_arr (np.ndarray): Array of k-values corresponding to the power spectrum.
+        xi (np.ndarray): Array of correlation function values (either full or half).
+        v_arr (np.ndarray): Array of velocity values corresponding to the correlation function.
+        cf_size (str): Specifies the type of correlation function. Can be 'half' (for half CF) or 'full' (for full CF).
+
+    Returns:
+        tuple: A tuple containing:
+            - k_arr (np.ndarray): Array of k-values corresponding to the recovered power.
+            - power (np.ndarray): Array of power spectrum values.
+    """
     dv = np.mean(np.diff(v_arr))
 
     if cf_size == 'half':  # mirror first, assume half cf
@@ -543,6 +874,21 @@ def recover_power(k_arr, xi, v_arr, cf_size):
 
 
 def interpolate_arrays(new_size, v_spacing, k_data, p_data):
+    """
+    Interpolates the P1D onto a new velocity and k grid with higher resolution.
+
+    Args:
+        new_size (int): The size of the new grid.
+        v_spacing (float): The spacing between velocity points.
+        k_data (np.ndarray): Array of k-values to interpolate.
+        p_data (np.ndarray): Array of power values to interpolate.
+
+    Returns:
+        tuple: A tuple containing:
+            - new_v_data (np.ndarray): New velocity grid.
+            - new_k_data (np.ndarray): New k grid.
+            - new_p_data (np.ndarray): Interpolated power data.
+    """
     new_v_data = np.arange(new_size) * v_spacing
     new_k_data = np.linspace(k_data.min(), k_data.max(), new_size)
 
@@ -553,6 +899,21 @@ def interpolate_arrays(new_size, v_spacing, k_data, p_data):
 
 
 def downsample_array(v_array, xi_array, downsample_size, log_scale=True):
+    """
+    Downsamples the given velocity and correlation function arrays.
+
+    Args:
+        v_array (np.ndarray): Array of velocity values.
+        xi_array (np.ndarray): Array of correlation function values.
+        downsample_size (int): The desired size of the downsampled array.
+        log_scale (bool, optional): Whether to use a logarithmic scale for sampling the velocity values (default is True).
+
+    Returns:
+        tuple: A tuple containing:
+            - v_array_downsampled (np.ndarray): Downsampled velocity array.
+            - xif_downsampled (np.ndarray): Downsampled correlation function array.
+            - dv_downsampled (np.ndarray): Velocity spacing for the downsampled array.
+    """
     velocity_abs = np.abs(v_array[1:])
 
     if log_scale:
@@ -573,9 +934,23 @@ def downsample_array(v_array, xi_array, downsample_size, log_scale=True):
     return v_array_downsampled, xif_downsampled, dv_downsampled
 
 
-#######################################
-
 def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2, flux_model, z0=PD13_PIVOT_Z):
+    """
+    Plots the mean flux fit compared to the target flux.
+
+    Args:
+        z (np.ndarray): Array of redshift values.
+        target_flux (np.ndarray): Array of target flux values to compare against.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): The exponent controlling the redshift evolution of optical depth.
+        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        flux_model (str): The model name used for the target flux.
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Saves:
+        Mean_Flux_Fit.png: A plot of the best-fit mean flux and target flux.
+    """
     print('Saving: Mean_Flux_Fit.png')
     # tau0, tau1, nu, sigma2 = bestfit_values
     plt.figure()
@@ -594,6 +969,19 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2, flux_model, z0=PD13_P
 
 
 def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
+    """
+    Plots the target 1D power spectrum and its interpolated version.
+
+    Args:
+        z (float): Redshift value for the target power spectrum.
+        k_array_input (np.ndarray): Array of k-values for the input power spectrum.
+        p1d_input (np.ndarray): Array of input power spectrum values.
+        k_array_fine (np.ndarray): Array of k-values for the interpolated power spectrum.
+        p1d_fine (np.ndarray): Array of interpolated power spectrum values.
+
+    Saves:
+        {z}_P1D_target.png: A plot comparing the input and interpolated power spectra.
+    """
     print(rf'Saving: {z}_P1D_target.png')
     plt.figure()
 
@@ -609,6 +997,20 @@ def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
 
 def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled,
                     xif_target_downsampled, dv):
+    """
+    Plots the target and interpolated target xi_F correlation functions.
+
+    Args:
+        z (float): Redshift value for the target xi_F.
+        new_v_array (np.ndarray): Array of velocities for the interpolated xi_F.
+        xif_interp_fit (np.ndarray): Interpolated xi_F values.
+        v_array_downsampled (np.ndarray): Array of downsampled velocities.
+        xif_target_downsampled (np.ndarray): Array of downsampled target xi_F values.
+        dv (float): Velocity spacing used for the plot.
+
+    Saves:
+        {z}_xi_F_target.png: A plot comparing the interpolated and downsampled xi_F.
+    """
     print(rf'Saving: {z}_xi_F_target.png')
     plt.figure()
     plt.semilogx(new_v_array[1:], xif_interp_fit[1:],
@@ -626,6 +1028,20 @@ def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled,
 
 
 def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
+    """
+    Plots the target and optimized xi_F fits along with the residuals.
+
+    Args:
+        z (float): Redshift value for the xi_F fit.
+        v_array_downsampled (np.ndarray): Array of downsampled velocities.
+        xi_f_target (np.ndarray): Target xi_F values.
+        xi_f_optimized (np.ndarray): Optimized xi_F values.
+        dv (float): Velocity spacing used for the plot.
+
+    Saves:
+        {z}_xi_F_fit.png: A plot comparing the target and optimized xi_F.
+        {z}_xi_F_fit_residual.png: A plot of the residuals between target and optimized xi_F.
+    """
     print(rf'Saving: {z}_xi_F_fit.png')
     plt.figure()
     plt.semilogx(v_array_downsampled, xi_f_target, alpha=0.5,
@@ -662,6 +1078,20 @@ def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
 
 def plot_xig_fit(z, v_array_downsampled, xi_g_optimized,
                  zero_point, v_extrapolated, xi_g_extrapolated):
+    """
+    Plots the optimized xi_g fit along with the extrapolated and fixed point values.
+
+    Args:
+        z (float): Redshift value for the xi_g fit.
+        v_array_downsampled (np.ndarray): Array of downsampled velocities.
+        xi_g_optimized (np.ndarray): Optimized xi_g values.
+        zero_point (float): Value of xi_g at zero velocity.
+        v_extrapolated (np.ndarray): Extrapolated velocity values.
+        xi_g_extrapolated (np.ndarray): Extrapolated xi_g values.
+
+    Saves:
+        {z}_xi_G_fit.png: A plot comparing the optimized, extrapolated, and fixed xi_g values.
+    """
     print(rf'Saving: {z}_xi_G_fit.png')
     plt.figure()
     plt.plot(v_array_downsampled, xi_g_optimized,
@@ -682,6 +1112,22 @@ def plot_xig_fit(z, v_array_downsampled, xi_g_optimized,
 def plot_xi_f_recovered(z, v_fine, xif_fine,
                         v_array_downsampled, xif_target_downsampled,
                         v_extrapolated, xi_f_optimized_extrapolated, dv):
+    """
+    Plots the recovered xi_F fit along with the downsampled target and extrapolated values.
+
+    Args:
+        z (float): Redshift value for the xi_F recovery plot.
+        v_fine (np.ndarray): Fine velocity array for re-interpolated xi_F.
+        xif_fine (np.ndarray): Re-interpolated xi_F values.
+        v_array_downsampled (np.ndarray): Array of downsampled velocities.
+        xif_target_downsampled (np.ndarray): Downsampled target xi_F values.
+        v_extrapolated (np.ndarray): Extrapolated velocity values.
+        xi_f_optimized_extrapolated (np.ndarray): Extrapolated optimized xi_F values.
+        dv (float): Velocity spacing used for the plot.
+
+    Saves:
+        {z}_xi_F_recovery.png: A plot comparing the re-interpolated, downsampled target, and extrapolated xi_F values.
+    """
     print(rf'Saving: {z}_xi_F_recovered.png')
     plt.figure()
     plt.semilogx(v_fine, xif_fine, label=f're-interp., N = {v_fine.size}',
@@ -702,6 +1148,24 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
 
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real):
+    """
+    Plots the recovered power spectrum and residuals.
+
+    Args:
+        z (float): Redshift value for the power spectrum plot.
+        k_array_input (np.ndarray): Array of k values (momentum space).
+        p1d_input (np.ndarray): Power spectrum values corresponding to k_array_input.
+        w_k (np.ndarray): Index array used to filter k_array_input and p1d_input.
+        mirrored_fit_k_arr (np.ndarray): Fitted k values after mirroring the power spectrum.
+        mirrored_fit_power (np.ndarray): Fitted power values corresponding to mirrored_fit_k_arr.
+        w_fit_k (np.ndarray): Index array for selecting the fitted power spectrum.
+        e_p1d (np.ndarray): Error values for the power spectrum.
+        z_id (int): Index for selecting the redshift value in e_p1d.
+        delta_P_real (np.ndarray): Residuals of the power spectrum (difference between model and fit).
+
+    Saves:
+        {z}_recovered_power.png: A plot of the power spectrum (model vs fit) and the residuals.
+    """
     print(rf'Saving: {z}_recovered_power.png')
 
     temp_k = k_array_input[w_k]
@@ -762,7 +1226,7 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process P1D and k arrays from file with redshift parameters.")
+        description="Solve for optimal Gaussian correlation function, given redshift (required), P(k,z) (optional), and F(z) (optional)")
     parser.add_argument('--power_file', type=str,
                         help='Path to input (P,k) file (.txt) containing k and P1D arrays')
     parser.add_argument('--flux_file', type=str,
@@ -804,12 +1268,6 @@ def main():
     ### FIT MEAN FLUX  ###
     tau0, tau1, nu, sigma2 = fit_mean_flux(flux_array, flux_z_array, z0)
 
-    ##############################################
-    if args.plot_mean_flux:
-        plot_mean_flux(flux_z_array, flux_array,
-                       tau0, tau1, nu, sigma2, flux_model)
-    ##############################################
-
     ###  FIT POWER  ###
     print("\n\n###  Fitting Power  ###")
 
@@ -834,12 +1292,6 @@ def main():
         new_v_array, k_array_fine, p1d_fine = interpolate_arrays(
             interp_size, dv, k_array_input, p1d_input)
 
-        ##############################################
-        if args.plot_target_power:
-            plot_target_power(safe_z, k_array_input,
-                              p1d_input, k_array_fine, p1d_fine)
-        ##############################################
-
         # Calculate target xi_f from target p_f
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
@@ -848,21 +1300,10 @@ def main():
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 
-        ##############################################
-        if args.plot_target_xif:
-            plot_target_xif(safe_z, new_v_array, xif_interp_fit,
-                            v_array_downsampled, xif_target_downsampled, dv)
-        ##############################################
-
         # Solve for xi_G and xi_F optimized
         xi_g_optimized, xi_f_optimized = solve_xi_optimized(z_target, redshift_index,
                                                             downsample_size, xif_target_downsampled,
                                                             tau0, tau1, nu, sigma2, z0)
-        ##############################################
-        if args.plot_xif_fit:
-            plot_xif_fit(safe_z,  v_array_downsampled,
-                         xif_target_downsampled, xi_f_optimized, dv)
-        ##############################################
 
         # Extrapolate xi_G to zero (saves half and full cf)
         v_extrapolated, xi_g_extrapolated, zero_point = extrapolate_xiG(v_array_downsampled,
@@ -870,12 +1311,6 @@ def main():
         # Mirror and export xi_G full
         v_mirrored, xiG_mirrored = mirror_xiG(v_extrapolated, xi_g_extrapolated,
                                               safe_z, save_cf='full')
-
-        ##############################################
-        if args.plot_xig_fit:
-            plot_xig_fit(safe_z, v_array_downsampled, xi_g_optimized,
-                         zero_point, v_extrapolated, xi_g_extrapolated)
-        ##############################################
 
         # Recover xi_f
         xi_f_optimized_extrapolated = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index],
@@ -886,13 +1321,6 @@ def main():
                              v_extrapolated.max(), interp_size)
         cs = CubicSpline(v_extrapolated, xi_f_optimized_extrapolated)
         xif_fine = cs(v_fine)
-
-        ##############################################
-        if args.plot_xif_recovered:
-            plot_xi_f_recovered(safe_z, v_fine, xif_fine, v_array_downsampled,
-                                xif_target_downsampled, v_extrapolated,
-                                xi_f_optimized_extrapolated, dv)
-        ##############################################
 
         # Recover P_F (k)
         fit_k_arr, fit_power = recover_power(
@@ -912,13 +1340,37 @@ def main():
             (p1d_input.real - fit_power_interp_2.real) / p1d_input.real)
         delta_P_real = delta_P.real
 
-        ##############################################
+        
+        ### SAVE PLOTS ##        
+        if args.plot_mean_flux:
+            plot_mean_flux(flux_z_array, flux_array,
+                           tau0, tau1, nu, sigma2, flux_model)
+
+        if args.plot_target_power:
+            plot_target_power(safe_z, k_array_input,
+                              p1d_input, k_array_fine, p1d_fine)
+
+        if args.plot_target_xif:
+            plot_target_xif(safe_z, new_v_array, xif_interp_fit,
+                            v_array_downsampled, xif_target_downsampled, dv)
+
+        if args.plot_xif_fit:
+            plot_xif_fit(safe_z,  v_array_downsampled,
+                         xif_target_downsampled, xi_f_optimized, dv)
+
+        if args.plot_xig_fit:
+            plot_xig_fit(safe_z, v_array_downsampled, xi_g_optimized,
+                         zero_point, v_extrapolated, xi_g_extrapolated)
+
+        if args.plot_xif_recovered:
+            plot_xi_f_recovered(safe_z, v_fine, xif_fine, v_array_downsampled,
+                                xif_target_downsampled, v_extrapolated,
+                                xi_f_optimized_extrapolated, dv)
+            
         if args.plot_recovered_power:
             plot_recovered_power(safe_z, k_array_input, p1d_input, w_k,
                                  fit_k_arr, fit_power, w_fit_k, e_p1d,
                                  redshift_index, delta_P_real)
-        ##############################################
-
 
 if __name__ == "__main__":
     main()
