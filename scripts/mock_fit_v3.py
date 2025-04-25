@@ -45,8 +45,13 @@ YY1, YY2 = np.meshgrid(gausshermite_xi_deg, gausshermite_xi_deg, indexing='ij')
 WW1, WW2 = np.meshgrid(gausshermite_wi_deg, gausshermite_wi_deg, indexing='ij')
 
 # set defaults for p1d fit
-default_numvpoints = 2**20
-default_dv = 12.0 # safeguard
+# default_numvpoints = 2**21
+default_numvpoints = 2**21
+
+# default_dv = 12.0    # for z <= 2.0
+# default_dv = 10.0    # for  2.1 <= z <= 2.5
+default_dv = 1.0       # for z >= 2.6
+
 default_v_array = np.arange(default_numvpoints) * default_dv
 k_arr = 2. * np.pi * \
     np.fft.rfftfreq((2 * default_numvpoints)-1, d=default_dv) + 1e-12
@@ -273,7 +278,8 @@ def t_of_z(zp, tau0=0.55, tau1=5.1, z0=PD13_PIVOT_Z):
 
     Args:
         zp (float or np.ndarray): Redshift(s) at which to evaluate optical depth.
-        tau0 (float, optional): Normalization factor for optical depth (default: 0.55).
+        tau0 (float, optional): Normalization factor for optical depth
+                                (default: 0.55).
         tau1 (float, optional): Exponent controlling redshift evolution
                 of optical depth (default: 5.1).
         z0 (float, optional): Pivot redshift for normalization
@@ -317,7 +323,7 @@ def x_of_z(zp, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
         zp (float or np.ndarray): Redshift(s) at which to evaluate.
         tau0 (float): The normalization factor for optical depth.
         tau1 (float): Exponent controlling redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of the lognormal transform.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization
             (default: PD13_PIVOT_Z).
@@ -337,7 +343,7 @@ def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
         z (float or np.ndarray): Redshift(s) at which to evaluate the flux.
         tau0 (float): The normalization factor for optical depth.
         tau1 (float): Exponent controlling the redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of the lognormal transform.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization
                             (default: PD13_PIVOT_Z).
@@ -493,18 +499,6 @@ def process_power_data(z_target, power_file=None):
                     P1D array lengths.
         ValueError: If there is an error processing the power spectrum file.
     """
-    # sort minimum v by redshift (lower redshift requires larger minimum dv 
-    # to ensure sigma2 > \xi_G(v=0)
-    def get_dv_for_redshift(z):
-        if z <= 2.0:
-            return 12
-        elif 2.1 <= z <= 2.5:
-            return 10
-        elif z >= 2.6:
-            return 1
-        else:
-            return default_dv  # fallback, just in case
-    
     if power_file:
         print('\n(P,k,z) file provided, using as target P1D')
         grouped_data, zlist = process_power_file(power_file)
@@ -549,10 +543,8 @@ def process_power_data(z_target, power_file=None):
         zlist = z_target
         P1D_array = PD13Lorentz_DESI_EDR(z_target)
 
-        dv_array = np.array([get_dv_for_redshift(z) for z in zlist])
-        numvpoints_array = np.array([
-            int(np.round(2 * np.pi / (k_array[1] - k_array[0]) / dv)) if len(k_array) > 1 else default_numvpoints
-            for dv in dv_array])
+        dv_array = np.full(len(zlist), default_dv)
+        numvpoints_array = np.full(len(zlist), default_numvpoints)
 
         for i, z in enumerate(zlist):
             if len(k_array) != len(P1D_array[i]):
@@ -741,7 +733,7 @@ def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
         xi_f_target (array-like): Target flux correlation function values.
         tau0 (float): The normalization factor for optical depth.
         tau1 (float): The exponent controlling the redshift evolution of optical depth.
-        nu (float): Exponent controlling the redshift evolution of the lognormal transform.
+        nu (float): Exponent controlling the redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
 
@@ -1392,7 +1384,7 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     x_min, x_max = k_array_input[w_k].min(), 0.1
     mask = (k_array_input >= x_min) & (k_array_input <= 0.05)
     percent_diff_in_range = percent_diff[mask]
-    
+
     # Compute max abs percent difference in the plotting range
     if np.any(~np.isnan(percent_diff_in_range)):  # Ensure there are valid values
         y_max = np.nanmax(np.abs(percent_diff_in_range))
@@ -1400,7 +1392,7 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
         ax2.set_ylim(-y_max - buffer, y_max + buffer)
     else:
         ax2.set_ylim(-10, 10)  # Fallback in case of NaNs
-        
+
     ax2.set_xlabel(r'k $[km/s]^{-1}$')
     ax2.set_ylabel(r"% Difference")
     ax2.grid()
@@ -1412,7 +1404,6 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     # Clean x ticks on top plot
     plt.setp(ax1.get_xticklabels(), visible=False)
 
-    # plt.savefig(rf'{z}_recovered_power.png')
     plt.savefig(rf'{z}_recovered_power.png')
     plt.close()
 
@@ -1474,7 +1465,6 @@ def main():
             '.', '-')  # For naming figures
 
         dv = dv_array[redshift_index]
-        print(f'dv = {dv}')
         numvpoints = numvpoints_array[redshift_index]
 
         print(f"\nProcessing redshift: {z}")
@@ -1493,7 +1483,8 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
         # Downsample xi_f (logarithmically)
-        downsample_size = 2**10
+        # downsample_size = 2**10
+        downsample_size = 2**7
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 

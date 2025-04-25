@@ -2,8 +2,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
-from matplotlib.pyplot import cm
 import scipy as sp
 from scipy.fft import fft, ifft, rfft, irfft
 from scipy.stats import binned_statistic
@@ -24,7 +22,7 @@ import random
 #######################################
 
 
-plt.rcParams['figure.figsize'] = (8, 4)
+plt.rcParams['figure.figsize'] = (8, 5)
 plt.rcParams['font.size'] = 16
 plt.rcParams['axes.titlesize'] = 16
 plt.rcParams['legend.fontsize'] = 14
@@ -187,7 +185,8 @@ def process_power_file(safe_z, user_path=None):
             f"Failed to process power file for z={safe_z}:\n{e}")
 
 
-def parse_fitting_params(input_str=None, default=(0.67377, 5.31008, 2.16175, 1.50381)):
+def parse_fitting_params(input_str=None, default=(0.67377, 5.31008, 
+                                                  2.16175, 1.50381)):
     """
     Parses lognormal parameters from a comma-separated string or a file.
 
@@ -308,20 +307,86 @@ def delta_transform_1d(file_k_array, file_power_array,
     return delta_b_tilde, delta_b, P_k
 
 
-def a2_z(zp, nu=2.16175, z0=PD13_PIVOT_Z): 
+def a2_z(zp, nu=2.16175, z0=PD13_PIVOT_Z):
+    """
+    Computes the redshift-dependent scaling factor a^2(z).
+
+    This function calculates a^2(z) using a power-law scaling
+    relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): Redshift(s) at which to evaluate scale factor.
+        nu (float, optional): Exponent controlling redshift evolution
+            (default: 2.16175).
+        z0 (float, optional): Pivot redshift for normalization
+            (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed a^2(z) scaling factor.
+    """
     return np.power((1. + zp) / (1.+z0), -nu)
 
 
-def a_z(zp, nu=2.16175, z0=PD13_PIVOT_Z): 
+def a_z(zp, nu=2.16175, z0=PD13_PIVOT_Z):
+    """
+    Computes the redshift-dependent scaling factor a(z).
+
+    This function calculates a(z) as the square root of a^2(z), following a
+    power-law scaling relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): Redshift(s) at which to evaluate scale factor.
+        nu (float, optional): Exponent controlling redshift evolution
+            (default: 2.16175).
+        z0 (float, optional): Pivot redshift for normalization
+            (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed a(z) scaling factor.
+    """
     return np.sqrt(np.power((1. + zp) / (1.+z0), -nu))
 
 
 def lognormal_transform(delta_z, sigma2_z):
+    """
+    Applies a lognormal transform to approximate the HI column density as a
+    function of redshift.
+
+    This function computes a redshift-dependent factor based on a
+    lognormal distribution,
+    which is commonly used to approximate the HI column density in
+    cosmological models.
+
+    Args:
+        delta_z (array): Redshifted delta field.
+        sigma2_z (float): Redshifted variance of the Gaussian field.
+
+    Returns:
+        float or np.ndarray: Lognormal transform, approximating HI column density.
+    """
     n_z = np.exp((2 * (delta_z) - (sigma2_z)))
     return (n_z)
 
 
-def t_of_z(zp, tau0=673.77e-3, tau1=5.31008, z0=PD13_PIVOT_Z): 
+def t_of_z(zp, tau0=673.77e-3, tau1=5.31008, z0=PD13_PIVOT_Z):
+    """
+    Computes the optical depth as a function of redshift.
+
+    This function calculates the optical depth, tau(z), based on a power-law
+    scaling relative to a pivot redshift.
+
+    Args:
+        zp (float or np.ndarray): Redshift(s) at which to evaluate optical depth.
+        tau0 (float, optional): Normalization factor for optical depth (
+                                default: 673.77e-3).
+        tau1 (float, optional): Exponent controlling redshift evolution
+                of optical depth (default: 5.31008).
+        z0 (float, optional): Pivot redshift for normalization
+                (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: Computed optical depth(s) for the given redshift(s).
+    """
     return tau0 * np.power((1. + zp) / (1.+z0), tau1)
 
 
@@ -335,6 +400,21 @@ def f_of_z(x_z):
 
 # used for GHQ mean flux
 def x_z(z, sigma2, tau0=673.77e-3, tau1=5.31008, nu=2.16175, z0=PD13_PIVOT_Z):
+    """
+    Modifies optical depth for flux calculations by incorporating z-dependence.
+
+    Args:
+        zp (float or np.ndarray): Redshift(s) at which to evaluate.
+        tau0 (float): The normalization factor for optical depth.
+        tau1 (float): Exponent controlling redshift evolution of optical depth.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
+        sigma2 (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift for normalization
+            (default: PD13_PIVOT_Z).
+
+    Returns:
+        float or np.ndarray: The computed x(z) factor for modifying the flux.
+    """
     return t_of_z(z, tau0, tau1, z0) * np.exp(-a2_z(z, nu, z0) * sigma2)
 
 
@@ -345,14 +425,15 @@ def prefactor(variance):
 
 
 # used for GHQ mean flux
-def mean_F(z, variance, tau0=673.77e-3, tau1=5.31008, nu=2.16175, z0=PD13_PIVOT_Z):
+def mean_F(z, variance, tau0=673.77e-3, tau1=5.31008, 
+           nu=2.16175, z0=PD13_PIVOT_Z):
     def integrand(x): return np.exp((-(x**2) / (2 * variance)) -
                                     ((x_z(z, variance, tau0, tau1, nu))
                                      * np.exp(2 * (a_z(z, nu)) * x)))
     integral = integrate.quad(integrand, -np.inf, np.inf)[0]
     value = prefactor(variance) * integral
     return (value)
-    
+
 
 def turner24_mf(z):
     """
@@ -401,17 +482,18 @@ def export_transmission(z_safe, v_array, f_array):
     return (trans_dir)
 
 
-def delta_F(z, variance, input_flux, tau0=673.77e-3, tau1=5.31008, nu=2.16175, z0=PD13_PIVOT_Z):
+def delta_F(z, variance, input_flux, tau0=673.77e-3, tau1=5.31008, 
+            nu=2.16175, z0=PD13_PIVOT_Z):
     f_bar = mean_F(z, variance, tau0, tau1, nu, z0)
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
-    return(delta_f)
+    return (delta_f)
 
 
 def P_F(delta_f):
     delta_f_tilde = np.fft.rfft(delta_f)
     P_F = np.abs(delta_f_tilde)**2 / (delta_f.size * dv)
-    return(P_F)
+    return (P_F)
 
 
 def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
@@ -429,75 +511,182 @@ def fit_PD13Lorentz(measured_power, delta_f, dv):
     N = len(delta_f)
     kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
     window = (kmodes > 1e-5) & (kmodes < 0.05)  # Window for k_arr
-    statistic, bin_edges, binnumber = binned_statistic(x = kmodes[window], 
-                                                        values = measured_power[window], 
-                                                        statistic = 'mean', bins=500)
+    statistic, bin_edges, binnumber = binned_statistic(x=kmodes[window],
+                                                       values=measured_power[window],
+                                                       statistic='mean', bins=500)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    k_arr = bin_centers 
+    k_arr = bin_centers
 
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
-            
+
     # Fit the mock data
     popt_mock, pcov_mock = curve_fit(
-        lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(k, A, n, alpha, B, beta, lmd),
+        lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
+            k, A, n, alpha, B, beta, lmd),
         bin_centers, statistic, p0=p0, maxfev=20000)
 
     return bin_centers, statistic, *popt_mock
 
 
-def fit_and_plot_power(delta_f, z, dv, safe_z, i, plot='y'):
+def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None, 
+                       N_mocks=None, z_target=None, k_arrays=None, 
+                       power_arrays=None, all_z='n', plot='y'):
     """
     Fit PD13 Lorentzian model to 1D power spectrum and optionally plot.
 
     Parameters:
-    - delta_f (array): Normalized flux fluctuations.
-    - z (float): Redshift of current spectrum.
-    - dv (float): Velocity spacing.
-    - safe_z (str): Safe string version of redshift for filenames.
-    - i (int): Index of the current mock.
+    - delta_f (array, optional): Normalized flux fluctuations.
+    - z (float, optional): Redshift of current spectrum.
+    - dv (float, optional): Velocity spacing.
+    - safe_z (str, optional): Safe string version of redshift for filenames.
+    - N_mocks (int, optional): Number of mocks used in the measurement.
+    - z_target (array): Redshift grid used for evaluating DESI model.
+    - k_arrays (list, optional): List of k-arrays for each redshift 
+                            (used when all_z='y').
+    - power_arrays (list, optional): List of P(k) arrays for each redshift 
+                            (used when all_z='y').
+    - all_z (str): 'y' to plot all redshifts together, 'n' for individual redshift.
     - plot (str): 'y' to generate plot, 'n' to skip plotting.
-    
+
     Returns:
-    - bin_centers (array): k-values used for the fit.
-    - statistic (array): Binned 1D power spectrum.
-    - popt (tuple): Best-fit PD13 parameters.
+    - bin_centers (array): k-values used for the fit (only if all_z='n').
+    - statistic (array): Binned 1D power spectrum (only if all_z='n').
+    - popt (tuple): Best-fit PD13 parameters (only if all_z='n').
     """
-    measured_power = P_F(delta_f)
 
-    # Compute k array and bin
-    N = len(delta_f)
-    kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
-    window = (kmodes > 1e-5) & (kmodes < 0.05)
+    if all_z == 'y' and plot == 'y':
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
+                                       sharex=True,
+                                       gridspec_kw={'height_ratios': [3, 1]},
+                                       constrained_layout=True)
+        # Colormap
+        cmap = plt.get_cmap('rainbow')
+        norm = plt.Normalize(vmin=min(z_target), vmax=max(z_target))
 
-    statistic, bin_edges, _ = binned_statistic(
-        x=kmodes[window], 
-        values=measured_power[window], 
-        statistic='mean', bins=500)
-    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+        for i, z in enumerate(z_target):
+            k = k_arrays[i]
+            p = power_arrays[i]
+            color = cmap(norm(z))
 
-    # Fit PD13 Lorentzian model
-    p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
-    popt, _ = curve_fit(
-        lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz((k, z), A, n, alpha, B, beta, lmd),
-        bin_centers, statistic, p0=p0, maxfev=20000)
+            # ===== Fit PD13 model to measured power =====
+            p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
+            w_k = (k > 1e-5) & (k < 0.05)
 
-    if plot == 'y':
-        model_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
+            try:
+                popt, _ = curve_fit(
+                    lambda k_, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
+                        (k_, z), A, n, alpha, B, beta, lmd),
+                    k[w_k], p[w_k], p0=p0, maxfev=20000
+                )
+                mock_fit = evaluatePD13Lorentz((k, z), *popt)
+            except RuntimeError:
+                print(f"Fit failed at z={z:.1f}")
+                continue
 
-        plt.figure()
-        plt.loglog(bin_centers, statistic, label=f'Mock Measured (z = {safe_z})', alpha=0.5, color='tab:orange')
-        plt.loglog(bin_centers, model_fit, label='Mock Fit (PD13)', lw=2, color='tab:orange')
-        plt.ylabel(r'$P_{1D}(k)$')
-        plt.xlabel(r'$k$ [km/s$^{-1}$]')
-        plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f'{safe_z}_mock{i}_power_fit.png')
+            # ===== DESI model + precision band =====
+            desi_model = evaluatePD13Lorentz((k, z), *DESI_EDR_PARAMETERS)
+            ep1d = 0.1 * desi_model
+
+            # ===== Top: Power spectrum fit comparison =====
+            ax1.loglog(k, mock_fit, lw=2, color=color, label=fr"$z={z:.1f}$")
+            ax1.loglog(k, desi_model, ls='--', lw=2, color=color)
+            ax1.fill_between(k[w_k], desi_model[w_k] - ep1d[w_k], 
+                             desi_model[w_k] + ep1d[w_k],
+                             color=color, alpha=0.15)
+
+            # ===== Bottom: % difference =====
+            percent_diff = 100 * \
+                (mock_fit[w_k] - desi_model[w_k]) / desi_model[w_k]
+            ax2.plot(k[w_k], percent_diff, lw=1.2,
+                     marker='o', markersize=2, color=color)
+
+        # Final plot styling
+        ax1.set_ylabel(r"$P_{\mathrm{1D}}(k)$")
+        ax1.legend(ncol=3, fontsize='small', loc='lower left')
+        ax1.grid(True, which='both', ls=':', alpha=0.6)
+
+        ax2.axhline(0, color='black', lw=1, ls='--')
+        ax2.set_ylabel(r"% Difference")
+        ax2.set_xlabel(r"$k$ [km/s$^{-1}$]")
+        ax2.grid(True, ls=':', alpha=0.6)
+
+        plt.savefig("Power_measured.png")
         plt.close()
 
-    return bin_centers, statistic, popt
+    else:
+        # Standard single-redshift mode
+        measured_power = P_F(delta_f)
+        N = len(delta_f)
+        kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
+        window = (kmodes > 1e-5) & (kmodes < 0.05)
 
+        statistic, bin_edges, _ = binned_statistic(
+            x=kmodes[window],
+            values=measured_power[window],
+            statistic='mean', bins=500)
+        bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+
+        p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
+        popt, _ = curve_fit(
+            lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
+                (k, z), A, n, alpha, B, beta, lmd),
+            bin_centers, statistic, p0=p0, maxfev=20000)
+
+        if plot == 'y':
+            p1d_edr_fit = np.empty((z_target.size, bin_centers.size))
+            for i, z_ in enumerate(z_target):
+                p1d_edr_fit[i] = evaluatePD13Lorentz(
+                    (bin_centers, z_), *DESI_EDR_PARAMETERS)
+
+            p1d_precision = 1e-1
+            w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)
+            ptrue = p1d_edr_fit[:, w_k].ravel()
+            e_p1d = p1d_precision * ptrue + 1e-8
+
+            idx = np.where(z_target == z)[0]
+            redshift_index = idx[0]
+
+            temp_k = bin_centers[w_k]
+            temp_p = p1d_edr_fit[redshift_index, w_k]
+            temp_e = np.full_like(temp_k, e_p1d[redshift_index])
+            alpha_shade = 0.3
+
+            model_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
+            DESI_model = evaluatePD13Lorentz(
+                (bin_centers, z), *DESI_EDR_PARAMETERS)
+
+            percent_diff = 100 * (model_fit[w_k] - temp_p) / temp_p
+
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
+                                           sharex=True,
+                                           gridspec_kw={
+                                               'height_ratios': [3, 1]},
+                                           constrained_layout=True)
+
+            ax1.loglog(bin_centers, statistic, label=f'Measured (N Mocks = {N_mocks})',
+                       alpha=alpha_shade, lw=5, color='tab:orange')
+            ax1.fill_between(temp_k, temp_p - temp_e, temp_p + temp_e,
+                             color='tab:blue', alpha=alpha_shade, label=' ± precision')
+            ax1.loglog(bin_centers, DESI_model,
+                       label='PD13 Fit (DESI EDR)', lw=2, color='tab:blue')
+            ax1.loglog(bin_centers, model_fit, label=f'PD13 Fit (Mock)',
+                       lw=2, color='tab:orange', ls='--')
+
+            ax1.set_ylabel(rf'$P_{{1D}}(k),\ z={z}$')
+            ax1.legend(loc='lower left')
+            ax1.grid()
+
+            ax2.axhline(0, color='black', lw=1, ls='--')
+            ax2.plot(temp_k, percent_diff, marker='o', color='darkred', lw=1)
+            ax2.set_xlabel(r'$k$ [km/s$^{-1}$]')
+            ax2.set_ylabel('% Diff')
+            ax2.grid()
+
+            plt.savefig(f'{safe_z}_power_fit.png')
+            plt.close()
+
+        return bin_centers, statistic, popt
 
 
 #######################################
@@ -578,10 +767,12 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
         velocity_grid (np.ndarray): x-axis values for velocity space.
         field (np.ndarray): The field to plot.
         space (str, optional): Plotting mode - 'k' for kmodes, 'v' for velocity space,
-                                            or 'z' for redshifted velocity space (default: 'v').
+                                            or 'z' for redshifted velocity space 
+                                            (default: 'v').
         sliced (str, optional): Whether to slice the data ('y' or 'n'). Default 'y'.
         min_slice (int, optional): Start index for slicing. Default is 0.
-        max_slice (int, optional): End index for slicing. Default is None (to end of array).
+        max_slice (int, optional): End index for slicing. Default is None 
+                                                        (to end of array).
 
     Saves:
         A PNG image of the plotted field named `{z}_delta_field_{space}.png`.
@@ -740,7 +931,8 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     """
     # Interpolate model to z_target for residuals
     interp_model_at_target = np.interp(z_target, model_z, model_flux_array)
-    residuals = 100 * (mean_flux_array - interp_model_at_target) / interp_model_at_target
+    residuals = 100 * (mean_flux_array -
+                       interp_model_at_target) / interp_model_at_target
 
     # Plotting
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6),
@@ -748,8 +940,10 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
                                    constrained_layout=True)
 
     # Top panel: mean flux comparison
-    ax1.plot(model_z, model_flux_array, label='Turner et al., 2024', lw=6, alpha=0.5)
-    ax1.plot(z_target, mean_flux_array, label='Measured (GHQ)', ls='--', color='black', marker='o')
+    ax1.plot(model_z, model_flux_array,
+             label='Turner et al., 2024', lw=6, alpha=0.5)
+    ax1.plot(z_target, mean_flux_array, label='Measured (GHQ)',
+             ls='--', color='black', marker='o')
 
     ax1.set_ylabel(r'$\bar F(z)$')
     ax1.legend(loc='lower left')
@@ -761,6 +955,8 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     ax2.set_xlabel('z')
     ax2.set_ylabel('% Difference')
     ax2.grid()
+
+    print('Saving: Mean_Flux_Measured.png')
 
     # Save figure
     plt.savefig('Mean_Flux_Measured.png')
@@ -800,16 +996,12 @@ def main():
                         help='Generate and save a figure of the transmission field in velocity space (default: False)')
     parser.add_argument('--plot_transmission_w', action='store_true',
                         help='Generate and save a figure of the transmission field in wavelength space (default: False)')
-    # parser.add_argument('--plot_mean_flux', action='store_true',
-    #                     help='Generate and save a figure of the measured mean flux (default: False)')
-    # parser.add_argument('--plot_power', action='store_true',
-    #                     help='Generate and save a figure of the measured 1D power (default: False)')
-
     args = parser.parse_args()
+
     z0 = PD13_PIVOT_Z
 
     ### Process Input Data ###
-    
+
     # z_target (required)
     try:
         z_target = parse_redshift_target(args.z_target)
@@ -824,38 +1016,35 @@ def main():
         if args.power_files:
             raise ValueError(
                 "Number of power files must match number of redshifts.")
-    # Otherwise, user didn't supply files, which is OK
+            # Otherwise, user didn't supply files, which is OK
 
     # fitting params (optional)
     fitting_params = parse_fitting_params(args.fit_params)
     tau0, tau1, nu, sigma2 = fitting_params
-    # tau0, tau1, nu =673.77e-3, 5.31008, 2.16175
 
-
-
-    
-
-    
     mean_flux_array = []
-
-      #####################################  
-
+    power_per_z_array = []
+    k_arrays = []
 
     # generate mocks for each target redshift
     for z, power_file in zip(z_target, power_files):
         idx = np.where(z_target == z)[0]
         redshift_index = idx[0]
         temp_mean_flux = []
-        temp_mean_flux_test = []
-        
+
         print(f'\nProcessing z = {z}')
+        print(f'N Mocks per z: {args.N_mocks}')
+
+        start_time = time.time()    
+        
         safe_z = str(z).replace('.', '-')
         k_array, power_array = process_power_file(safe_z, power_file)
 
-        for i in range(args.N_mocks):
-            # z = redshift
-            # i = number of mocks to generate
+        delta_f_array = []
+        power_per_mock = []
+        mean_power_per_z = []
 
+        for i in range(args.N_mocks):
             gaussian_random_field_v = generate_gaussian_random_field()
             gaussian_random_field_k = np.fft.rfft(gaussian_random_field_v)
 
@@ -864,99 +1053,96 @@ def main():
             delta_b_tilde, delta_b_v, P_k = delta_transform_1d(
                 k_array, power_array, gaussian_random_field_k, dv)
 
-            variance_1d = sigma2 # delta_b_v.var()  # sigma^2
+            print(f'sigma2 = {sigma2}')
+            variance_1d = delta_b_v.var()
+            print(f'delta_b_v.var() = {variance_1d}')
+            # variance_1d = sigma2  # need to set this to sigma2 from the fit?
             delta_b_z = delta_b_v * a_z(z, nu)
             redshifted_variance_1d = variance_1d * a2_z(z, nu)
 
             n_z = lognormal_transform(delta_b_z, redshifted_variance_1d)
             t_z = t_of_z(z, tau0, tau1)
             x_z = x_of_z(t_z, n_z)
-            f_z = f_of_z(x_z)   
+            f_z = f_of_z(x_z)
 
-            # save a value for mean flux for each transmission file at this redshift
+            # save value for mean flux for each transmission file at this z
             temp_mean_flux.append(mean_F(z, variance_1d, tau0, tau1, nu))
 
-            #################################
-            
             # save a fit to power for each transmission file
-            delta_f = delta_F(z=z, variance=redshifted_variance_1d, 
+            delta_f = delta_F(z=z, variance=redshifted_variance_1d,
                               input_flux=f_z, tau0=tau0, tau1=tau1, nu=nu, z0=z0)
+            delta_f_array.append(delta_f)
             measured_power = P_F(delta_f)
 
             #################################
 
-            # bin_centers, measured_stat, popt = fit_and_plot_power(delta_f, z, dv, safe_z, i, plot='y')
-
-
-
-            
+            # export transmission file
             filepath = export_transmission(safe_z, velocity_grid, f_z)
         print(f"Saved transmission file(s): {filepath}")
 
         mean_flux_per_z = np.mean(temp_mean_flux)
-        mean_flux_array.append(mean_flux_per_z)        
+        mean_flux_array.append(mean_flux_per_z)
 
+        delta_f_per_z = np.concatenate(delta_f_array)
+        bin_centers, statistic, popt = fit_and_plot_power(
+            delta_f_per_z, z, dv, safe_z, args.N_mocks, z_target, 
+            all_z='n', plot='y')
 
-        
+        if redshift_index == 0:
+            len_k_bins = len(statistic)
+            power_per_z_array = np.zeros((len(z_target), len_k_bins))
+            k_arrays = np.zeros((len(z_target), len_k_bins))
+
+        power_per_z_array[redshift_index] = statistic
+        k_arrays[redshift_index] = bin_centers
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        minutes = int(elapsed_time // 60)
+        seconds = int(elapsed_time % 60)
+        print(f"Elapsed Time: {minutes} min {seconds} sec\n")
+
+        ### SAVE PLOTS ##
+        print("\n###  Saving Figures  ###\n")
+        if args.plot_gaussian_field:
+            plot_gaussian_field(
+                safe_z, gaussian_random_field_v, space='v', sliced='y')
+
+        if args.plot_gaussian_power:
+            plot_gaussian_power(safe_z, k_array, power_array)
+
+        if args.plot_delta_k:
+            plot_delta_field(safe_z, kmodes, velocity_grid,
+                             delta_b_tilde, space='k', sliced='n')
+        if args.plot_delta_v:
+            plot_delta_field(safe_z, kmodes, velocity_grid,
+                             delta_b_v, space='v', sliced='y')
+        if args.plot_delta_z:
+            plot_delta_field(safe_z, kmodes, velocity_grid,
+                             delta_b_z, space='z', sliced='y')
+        if args.plot_nz:
+            plot_nz(safe_z, n_z, sliced='y')
+        if args.plot_optical_depth:
+            plot_optical_depth(safe_z, x_z, sliced='y')
         if args.plot_transmission_v:
             plot_transmission(z, safe_z, velocity_grid,
                               f_z, variance_1d, tau0, tau1, nu,
                               space='v', sliced='y')
+        if args.plot_transmission_w:
+            plot_transmission(z, safe_z, velocity_grid,
+                              f_z, variance_1d, tau0, tau1, nu,
+                              space='w', sliced='y')
 
-    
-    ### Measure Mean Flux ### 
+    ### Measure / Plot Mean Flux ###
     mean_flux_array = np.array(mean_flux_array)
-
-    
     model_z = np.linspace(min(z_target), max(z_target), 500)
     model_flux_array = np.array([turner24_mf(z) for z in model_z])
-    
+
     plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array)
 
+    fit_and_plot_power(z_target=z_target, k_arrays=k_arrays,
+                       power_arrays=power_per_z_array, all_z='y')
 
-    ### Measure Power ### 
-    # # initialize desi power fit
-    # p1d_edr_fit = np.empty((z_target.size, bin_centers.size))
 
-    # # Evaluate P1D for each (k,z), using DESI EDR Param. def. above
-    # for i, z in enumerate(zlist):
-    #     p1d_edr_fit[i] = evaluatePD13Lorentz((bin_centers, z), *DESI_EDR_PARAMETERS)
-
-    # return p1d_edr_fit
-    # p1d_edr_fit = PD13Lorentz_DESI_EDR(z_target) # [z,P1D]
-    
-        
-        # ### SAVE PLOTS ##
-        # print("\n###  Saving Figures  ###\n")
-        # if args.plot_gaussian_field:
-        #     plot_gaussian_field(
-        #         safe_z, gaussian_random_field_v, space='v', sliced='y')
-
-        # if args.plot_gaussian_power:
-        #     plot_gaussian_power(safe_z, k_array, power_array)
-
-        # if args.plot_delta_k:
-        #     plot_delta_field(safe_z, kmodes, velocity_grid,
-        #                      delta_b_tilde, space='k', sliced='n')
-        # if args.plot_delta_v:
-        #     plot_delta_field(safe_z, kmodes, velocity_grid,
-        #                      delta_b_v, space='v', sliced='y')
-        # if args.plot_delta_z:
-        #     plot_delta_field(safe_z, kmodes, velocity_grid,
-        #                      delta_b_z, space='z', sliced='y')
-        # if args.plot_nz:
-        #     plot_nz(safe_z, n_z, sliced='y')
-        # if args.plot_optical_depth:
-        #     plot_optical_depth(safe_z, x_z, sliced='y')
-        # if args.plot_transmission_v:
-        #     plot_transmission(z, safe_z, velocity_grid,
-        #                       f_z, variance_1d, tau0, tau1, nu,
-        #                       space='v', sliced='y')
-        # if args.plot_transmission_w:
-        #     plot_transmission(z, safe_z, velocity_grid,
-        #                       f_z, variance_1d, tau0, tau1, nu,
-        #                       space='w', sliced='y')
-  
-        
 if __name__ == "__main__":
     main()
