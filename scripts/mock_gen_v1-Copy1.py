@@ -620,7 +620,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None,
         ax2.set_xlabel(r"$k$ [km/s$^{-1}$]")
         ax2.grid(True, ls=':', alpha=0.6)
     
-        plt.savefig("Power_measured.png")
+        plt.savefig("test_Power_measured.png")
         plt.close()
 
     else:
@@ -679,10 +679,159 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None,
             ax2.set_ylabel('% Difference')
             ax2.grid()
 
-            plt.savefig(f'{safe_z}_power_fit.png')
+            plt.savefig(f'test_{safe_z}_power_fit.png')
             plt.close()
 
         return bin_centers, statistic, popt
+
+        
+### alternative method to calc. % diff between binned power measurement and model ###
+        
+# def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None, 
+#                        N_mocks=None, z_target=None, k_arrays=None, 
+#                        power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
+#     """
+#     Fit PD13 Lorentzian model to 1D power spectrum and optionally plot.
+
+#     Parameters:
+#     - delta_f (array, optional): Normalized flux fluctuations.
+#     - z (float, optional): Redshift of current spectrum.
+#     - dv (float, optional): Velocity spacing.
+#     - safe_z (str, optional): Safe string version of redshift for filenames.
+#     - N_mocks (int, optional): Number of mocks used in the measurement.
+#     - z_target (array): Redshift grid used for evaluating DESI model.
+#     - k_arrays (list, optional): List of k-arrays for each redshift 
+#                             (used when all_z='y').
+#     - power_arrays (list, optional): List of P(k) arrays for each redshift 
+#                             (used when all_z='y').
+#     - all_z (str): 'y' to plot all redshifts together, 'n' for individual redshift.
+#     - plot (str): 'y' to generate plot, 'n' to skip plotting.
+
+#     Returns:
+#     - bin_centers (array): k-values used for the fit (only if all_z='n').
+#     - statistic (array): Binned 1D power spectrum (only if all_z='n').
+#     - popt (tuple): Best-fit PD13 parameters (only if all_z='n').
+#     """
+#     if all_z == 'y' and plot == 'y':
+#         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
+#                                        sharex=True,
+#                                        gridspec_kw={'height_ratios': [3, 1]},
+#                                        constrained_layout=True)
+#         cmap = plt.get_cmap('rainbow')
+#         norm = plt.Normalize(vmin=min(z_target), vmax=max(z_target))
+    
+#         for i, z in enumerate(z_target):
+#             k = k_arrays[i]
+#             delta_f = delta_f_array[i]
+#             color = cmap(norm(z))
+
+#             # ===== Fit PD13 model to measured power =====
+#             bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
+    
+#             # Evaluate fits and models
+#             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
+#             desi_model = np.empty((z_target.size, bin_centers.size))
+    
+#             desi_model[i] = evaluatePD13Lorentz((bin_centers, z), 
+#                                                     *DESI_EDR_PARAMETERS)
+#             p1d_precision = 1e-1
+#             w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
+#             ptrue = desi_model[:, w_k].ravel()
+#             e_p1d = p1d_precision * ptrue + 1e-8
+                
+#             idx = np.where(z_target == z)[0]
+#             redshift_index = idx[0]
+                
+#             # Extract data using index mask (w_k)
+#             temp_k = bin_centers[w_k]
+#             temp_p = desi_model[redshift_index, w_k]
+#             temp_e = np.full_like(temp_k, e_p1d[redshift_index])
+               
+#             # ===== Top: Power spectrum fit comparison =====
+#             ax1.loglog(bin_centers, statistic, color=color, alpha=0.15, linewidth=5) 
+#             ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-', 
+#                         label=f'z = {z}')
+#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
+#                         color=color, ls='--') 
+                
+#             # ===== Bottom: % difference =====
+#             # Calculate percent difference between the measured power and the DESI model
+#             percent_diff = 100 * (statistic - desi_model[redshift_index]) / desi_model[redshift_index]
+#             ax2.plot(bin_centers, percent_diff, lw=1.0, marker='o', color=color)
+    
+#         # Final plot styling
+#         ax1.set_ylabel(r"$P_{\mathrm{1D}}(k)$")
+#         ax1.legend(ncol=3, fontsize='small', loc='lower left')
+#         ax1.grid(True, which='both', ls=':', alpha=0.6)
+    
+#         ax2.axhline(0, color='black', lw=1, ls='--')
+#         ax2.set_ylabel(r"% Difference")
+#         ax2.set_xlabel(r"$k$ [km/s$^{-1}$]")
+#         ax2.grid(True, ls=':', alpha=0.6)
+    
+#         plt.savefig("test_Power_measured.png")
+#         plt.close()
+
+#     else:
+#         # Standard single-redshift mode
+#         measured_power = P_F(delta_f, dv)
+#         delta_f = delta_f
+
+#         bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
+        
+#         if plot == 'y':
+#             # Evaluate fits and models
+#             model_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
+#             desi_model = np.empty((z_target.size, bin_centers.size))
+    
+#             for i, j in enumerate(z_target):
+#                 desi_model[i] = evaluatePD13Lorentz((bin_centers, j), 
+#                                                     *DESI_EDR_PARAMETERS)
+#             p1d_precision = 1e-1
+#             w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
+#             ptrue = desi_model[:, w_k].ravel()
+#             e_p1d = p1d_precision * ptrue + 1e-8
+            
+#             idx = np.where(z_target == z)[0]
+#             redshift_index = idx[0]
+            
+#             # Extract data using index mask (w_k)
+#             temp_k = bin_centers[w_k]
+#             temp_p = desi_model[redshift_index, w_k]
+#             temp_e = np.full_like(temp_k, e_p1d[redshift_index])
+#             alpha_shade = 0.3
+
+#             # Calculate percent difference between the measured power and the DESI model
+#             percent_diff = 100 * (statistic[w_k] - temp_p) / temp_p
+
+#             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
+#                                            sharex=True,
+#                                            gridspec_kw={'height_ratios': [3, 1]},
+#                                            constrained_layout=True)
+
+#             ax1.loglog(bin_centers, statistic, label=f'Measured (N Mocks = {N_mocks})',
+#                        alpha=alpha_shade, lw=5, color='tab:orange')
+#             ax1.loglog(bin_centers, model_fit, label=f'PD13 Fit (Mock)',
+#                        lw=2, color='tab:orange', ls='--')
+#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
+#                       label='PD13 Fit (DESI EDR)', lw=2, color='tab:blue')
+#             ax1.fill_between(temp_k, temp_p - temp_e, temp_p + temp_e,
+#                              color='tab:blue', alpha=alpha_shade, label=' ± precision')
+            
+#             ax1.set_ylabel(rf'$P_{{1D}}(k),\ z={z}$')
+#             ax1.legend(loc='lower left')
+#             ax1.grid()
+
+#             ax2.axhline(0, color='black', lw=1, ls='--')
+#             ax2.plot(temp_k, percent_diff, marker='o', color='darkred', lw=1)
+#             ax2.set_xlabel(r'$k$ [km/s$^{-1}$]')
+#             ax2.set_ylabel('% Difference')
+#             ax2.grid()
+
+#             plt.savefig(f'test_{safe_z}_power_fit.png')
+#             plt.close()
+
+#         return bin_centers, statistic, popt
 
 
 def dv_z_model(z, A=0.07417, B=7.48301, C=0.91176, z0=PD13_PIVOT_Z):
@@ -969,7 +1118,7 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     print('Saving: Mean_Flux_Measured.png')
 
     # Save figure
-    plt.savefig('Mean_Flux_Measured.png')
+    plt.savefig('test_Mean_Flux_Measured.png')
     plt.close()
 
 

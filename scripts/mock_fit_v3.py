@@ -484,7 +484,7 @@ def process_power_data(z_target, power_file=None):
                                     a default model (PD13Lorentz_DESI_EDR) is used.
 
     Returns:
-        k_array (np.ndarray): A 1D array of wave numbers for each redshift in `z_target`.
+        k_array (np.ndarray): A 1D array of wave numbers for each z in `z_target`.
         P1D_array (np.ndarray): A 1D array of power spectrum values (P1D)
                                 corresponding to `k_array` for each redshift
                                 in `z_target`.
@@ -689,8 +689,8 @@ def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_
         z (float): Redshift value.
         xi_gauss (float): Gaussian correlation function value.
         tau0 (float):  Normalization factor for optical depth.
-        tau1 (float): Exponent controlling the redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of the lognormal transform.
+        tau1 (float): Exponent controlling redshift evolution of optical depth.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization
                             (default: PD13_PIVOT_Z).
@@ -728,12 +728,12 @@ def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
     Computes the residuals between the target and calculated flux correlation functions.
 
     Args:
-        xi_g (array-like): Current guess for the Gaussian correlation function values.
+        xi_g (array-like): Current guess for Gaussian correlation function values.
         z (float): Redshift value at which xi_f is calculated.
         xi_f_target (array-like): Target flux correlation function values.
         tau0 (float): The normalization factor for optical depth.
-        tau1 (float): The exponent controlling the redshift evolution of optical depth.
-        nu (float): Exponent controlling the redshift evolution of lognormal transform.
+        tau1 (float): Exponent controlling redshift evolution of optical depth.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
 
@@ -1483,8 +1483,7 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
         # Downsample xi_f (logarithmically)
-        # downsample_size = 2**10
-        downsample_size = 2**7
+        downsample_size = 2**10
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 
@@ -1567,7 +1566,6 @@ def main():
             plot_recovered_power(safe_z, k_array_input, p1d_input, w_k,
                                  fit_k_arr, fit_power, w_fit_k, e_p1d,
                                  redshift_index, delta_P_real)
-
 
 if __name__ == "__main__":
     main()
