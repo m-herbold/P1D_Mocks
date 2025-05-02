@@ -185,7 +185,7 @@ def process_power_file(safe_z, user_path=None):
             f"Failed to process power file for z={safe_z}:\n{e}")
 
 
-def parse_fitting_params(input_str=None, default=(0.67377, 5.31008, 
+def parse_fitting_params(input_str=None, default=(0.67377, 5.31008,
                                                   2.16175, 1.50381)):
     """
     Parses lognormal parameters from a comma-separated string or a file.
@@ -391,10 +391,29 @@ def t_of_z(zp, tau0=673.77e-3, tau1=5.31008, z0=PD13_PIVOT_Z):
 
 
 def x_of_z(t_z, n_z):
+    """
+    Modifies optical depth for flux calculations by incorporating z-dependence.
+
+    Args:
+        t_of_z (float):
+        n_z (float or np.ndarray): Lognormal transform, approximating HI column density.
+
+    Returns:
+        float or np.ndarray: The computed x_of_z(z) factor for calculating the flux.
+    """
     return t_z * n_z
 
 
 def f_of_z(x_z):
+    """
+    Calculates the z-dependent flux.
+
+    Args:
+        x_of_z (float or np.ndarray): The computed x_of_z(z) factor for calculating the flux.
+
+    Returns:
+        float or np.ndarray: The computed flux at the given redshift(s).
+    """
     return np.exp(-x_z)
 
 
@@ -420,13 +439,39 @@ def x_z(z, sigma2, tau0=673.77e-3, tau1=5.31008, nu=2.16175, z0=PD13_PIVOT_Z):
 
 # used for GHQ mean flux
 def prefactor(variance):
+    """
+    Compute the prefactor for Gaussian-Hermite quadrature integration.
+
+    Args:
+        variance (float): Variance of the Gaussian field.
+
+    Returns:
+        float: Normalization factor for the integrand.
+    """
     prefactor = 1 / (np.sqrt(variance) * np.sqrt(2 * np.pi))
     return (prefactor)
 
 
 # used for GHQ mean flux
-def mean_F(z, variance, tau0=673.77e-3, tau1=5.31008, 
+def mean_F(z, variance, tau0=673.77e-3, tau1=5.31008,
            nu=2.16175, z0=PD13_PIVOT_Z):
+    """
+    Compute the mean flux using Gaussian-Hermite quadrature integration.
+
+    Parameters:
+        z (float): Redshift at which to evaluate the mean flux.
+        variance (float): Variance of the underlying Gaussian field.
+        tau0 (float, optional): Normalization factor for optical depth
+                                (default: 0.67377).
+        tau1 (float, optional): Exponent controlling redshift evolution of optical depth
+                                (default: 5.31008).
+        nu (float, optional): Exponent for redshift evolution in the lognormal transform
+                                (default: 2.16175).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        float: The mean transmitted flux ⟨F⟩ at the given redshift.
+    """
     def integrand(x): return np.exp((-(x**2) / (2 * variance)) -
                                     ((x_z(z, variance, tau0, tau1, nu))
                                      * np.exp(2 * (a_z(z, nu)) * x)))
@@ -482,8 +527,25 @@ def export_transmission(z_safe, v_array, f_array):
     return (trans_dir)
 
 
-def delta_F(z, variance, input_flux, tau0=673.77e-3, tau1=5.31008, 
+def delta_F(z, variance, input_flux, tau0=673.77e-3, tau1=5.31008,
             nu=2.16175, z0=PD13_PIVOT_Z):
+    """
+    Compute the fractional flux fluctuation field δ_F = (F - ⟨F⟩) / ⟨F⟩.
+
+    Parameters:
+        z (float): Redshift at which the mean flux is evaluated.
+        variance (float): Variance of the underlying Gaussian field.
+        input_flux (np.ndarray): Array of transmitted flux values.
+        tau0 (float, optional): Normalization factor for optical depth (default: 0.67377).
+        tau1 (float, optional): Exponent controlling redshift evolution of optical depth
+                                (default: 5.31008).
+        nu )(float, optional): Exponent for redshift evolution in the lognormal transform
+                                (default: 2.16175).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
+
+    Returns:
+        np.ndarray: Fractional flux fluctuations δ_F.
+    """
     f_bar = mean_F(z, variance, tau0, tau1, nu, z0)
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
@@ -491,12 +553,44 @@ def delta_F(z, variance, input_flux, tau0=673.77e-3, tau1=5.31008,
 
 
 def P_F(delta_f, dv):
+    """
+    Compute the 1D power spectrum of fractional flux fluctuations.
+
+    Parameters:
+        delta_f (np.ndarray): Array of fractional flux fluctuations δ_F.
+        dv (float): Velocity spacing between pixels [km/s].
+
+    Returns:
+        np.ndarray: 1D power spectrum P_F(k) evaluated at Fourier modes
+                    corresponding to delta_f.
+    """
     delta_f_tilde = np.fft.rfft(delta_f)
     P_F = np.abs(delta_f_tilde)**2 / (delta_f.size * dv)
     return (P_F)
 
 
 def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
+    """
+    Evaluates the PD13 Lorentzian model for the 1D power spectrum (P1D).
+
+    This function computes the P1D based on the PD13 Lorentzian model
+    for given wavenumbers, redshifts, and fitting parameters (A,n,alpha,B,beta).
+
+    Args:
+        X (tuple[np.ndarray, np.ndarray]): A tuple containing:
+            - k (np.ndarray): Array of wavenumbers.
+            - z (np.ndarray or None): Array of redshifts
+                (or None for a single evaluation).
+        A (float): Amplitude scaling factor.
+        n (float): Power-law index for k dependence.
+        alpha (float): Logarithmic correction to the power-law.
+        B (float): Power-law index for redshift dependence.
+        beta (float): Logarithmic correction for redshift evolution.
+        lmd (float): Lorentzian damping factor.
+
+    Returns:
+        np.ndarray: Evaluated P1D values for the given k and z inputs.
+    """
     k, z = X
     q0 = k / PD13_PIVOT_K + 1e-10
     result = (A * np.pi / PD13_PIVOT_K) * np.power(
@@ -509,6 +603,29 @@ def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
 
 # def fit_PD13Lorentz(measured_power, delta_f, dv, z):
 def fit_PD13Lorentz(delta_f, dv, z):
+    """
+    Fit the 1D flux power spectrum using the PD13 Lorentzian model.
+
+    This function computes the 1D power spectrum from flux fluctuations,
+    bins it over k-space, and fits the PD13 Lorentzian model to the binned
+    power using non-linear least squares. The model includes both scale
+    and redshift evolution terms, and is evaluated via `evaluatePD13Lorentz`.
+
+    Parameters:
+        delta_f (np.ndarray): Array of fractional flux fluctuations δ_F.
+        dv (float): Velocity spacing between pixels [km/s].
+        z (float): Redshift at which the power spectrum is evaluated.
+
+    Returns:
+        k_arr (np.ndarray): Binned k-values [s/km] used in the fit.
+        P_k (np.ndarray): Binned power spectrum values corresponding to `k_arr`.
+        A (float): Amplitude scaling factor of the PD13 model.
+        n (float): Power-law index for the k dependence.
+        alpha (float) Logarithmic correction to the power-law index.
+        B (float): Power-law index for redshift evolution.
+        beta (float): Logarithmic correction for redshift evolution.
+        lmd (float): Lorentzian damping factor.
+    """
     power = P_F(delta_f, dv)
     N = len(delta_f)
     kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
@@ -518,7 +635,7 @@ def fit_PD13Lorentz(delta_f, dv, z):
                                                        statistic='mean', bins=500)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
     k_arr = bin_centers
-    
+
     # Remove invalid points
     valid = np.isfinite(statistic) & np.isfinite(bin_centers)
     bin_centers = bin_centers[valid]
@@ -526,40 +643,59 @@ def fit_PD13Lorentz(delta_f, dv, z):
 
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
-    
+
     # Now safe to call curve_fit
     popt_mock, pcov_mock = curve_fit(
         lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
-            (k,z), A, n, alpha, B, beta, lmd),
+            (k, z), A, n, alpha, B, beta, lmd),
         bin_centers, statistic, p0=p0, maxfev=20000)
 
     return bin_centers, statistic, *popt_mock
 
 
-def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None, 
-                       N_mocks=None, z_target=None, k_arrays=None, 
+def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
+                       N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
     """
-    Fit PD13 Lorentzian model to 1D power spectrum and optionally plot.
+    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally plot comparisons.
+
+    This function fits the PD13 Lorentzian model to a measured 1D power spectrum
+    either at a single redshift or across multiple redshifts. In "single-redshift mode"
+    (`all_z='n'`), it returns fit results and optionally plots the comparison between
+    the measured power spectrum, best-fit model, and the DESI EDR reference model.
+    In "multi-redshift mode" (`all_z='y'`), it fits and plots all redshifts together,
+    but does not return fit results.
 
     Parameters:
-    - delta_f (array, optional): Normalized flux fluctuations.
-    - z (float, optional): Redshift of current spectrum.
-    - dv (float, optional): Velocity spacing.
-    - safe_z (str, optional): Safe string version of redshift for filenames.
-    - N_mocks (int, optional): Number of mocks used in the measurement.
-    - z_target (array): Redshift grid used for evaluating DESI model.
-    - k_arrays (list, optional): List of k-arrays for each redshift 
-                            (used when all_z='y').
-    - power_arrays (list, optional): List of P(k) arrays for each redshift 
-                            (used when all_z='y').
-    - all_z (str): 'y' to plot all redshifts together, 'n' for individual redshift.
-    - plot (str): 'y' to generate plot, 'n' to skip plotting.
+        delta_f (np.ndarray, optional): Normalized flux fluctuations for a single spectrum.
+        z (float, optional): Redshift corresponding to `delta_f`.
+        dv (float, optional): Velocity spacing [km/s] for the single-redshift spectrum.
+        dv_array (list or np.ndarray, optional): List of velocity spacings for each
+                                                redshift (used when `all_z='y'`).
+        safe_z (str, optional): String-formatted redshift for use in filenames.
+        N_mocks (int, optional): Number of mocks used in computing `delta_f`
+                                (for plot labels).
+        z_target (np.ndarray): Array of target redshifts for model evaluation.
+        k_arrays (list of np.ndarray, optional): List of k-arrays for each
+                                                redshift (used when `all_z='y'`).
+        power_arrays (list of np.ndarray, optional): List of power spectra corresponding
+                                                to `k_arrays` (currently unused).
+        delta_f_array (list of np.ndarray, optional): List of flux fluctuation arrays
+                                                at each redshift (used when `all_z='y'`).
+        all_z ({'y', 'n'}, default 'n'): If 'y', evaluate and plot all redshifts together;
+                                        if 'n', fit a single redshift.
+        plot ({'y', 'n'}, default 'y'): If 'y', generate plots of the measured, fit,
+                                        and DESI EDR models.
 
-    Returns:
-    - bin_centers (array): k-values used for the fit (only if all_z='n').
-    - statistic (array): Binned 1D power spectrum (only if all_z='n').
-    - popt (tuple): Best-fit PD13 parameters (only if all_z='n').
+    Returns
+    -------
+    bin_centers : np.ndarray
+        Binned k-values used for fitting (only if `all_z='n'`).
+    statistic : np.ndarray
+        Binned power spectrum values (only if `all_z='n'`).
+    popt : tuple
+        Best-fit parameters for the PD13 Lorentzian model
+        (only if `all_z='n'`).
     """
     if all_z == 'y' and plot == 'y':
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
@@ -568,59 +704,64 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                                        constrained_layout=True)
         cmap = plt.get_cmap('rainbow')
         norm = plt.Normalize(vmin=min(z_target), vmax=max(z_target))
-    
+
         for i, z in enumerate(z_target):
             k = k_arrays[i]
             dv = dv_array[i]
             # p = power_arrays[i]
-            delta_f=delta_f_array[i]
+            delta_f = delta_f_array[i]
             color = cmap(norm(z))
 
             # ===== Fit PD13 model to measured power =====
             bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
-    
+
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
             desi_model = np.empty((z_target.size, bin_centers.size))
-    
-            desi_model[i] = evaluatePD13Lorentz((bin_centers, z), 
-                                                    *DESI_EDR_PARAMETERS)
+
+            desi_model[i] = evaluatePD13Lorentz((bin_centers, z),
+                                                *DESI_EDR_PARAMETERS)
             p1d_precision = 1e-1
-            w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
+            # Window for k_arr
+            w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)
             ptrue = desi_model[:, w_k].ravel()
             e_p1d = p1d_precision * ptrue + 1e-8
-                
+
             idx = np.where(z_target == z)[0]
             redshift_index = idx[0]
-                
+
             # Extract data using index mask (w_k)
             temp_k = bin_centers[w_k]
             temp_p = desi_model[redshift_index, w_k]
             temp_e = np.full_like(temp_k, e_p1d[redshift_index])
-               
+
             # ===== Top: Power spectrum fit comparison =====
-            ax1.loglog(bin_centers, statistic, color=color, alpha=0.15, linewidth=5) 
-            ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-', 
-                        label=f'z = {z}')
-            ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
-                        color=color, ls='--') 
+            ax1.loglog(bin_centers, statistic, color=color,
+                       alpha=0.15, linewidth=5)
+            ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-',
+                       label=f'z = {z}')
+            ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k],
+                       color=color, ls='--')
             # ax1.fill_between(temp_k, temp_p - temp_e, temp_p + temp_e,
             #             color=color, alpha=0.15) #, label=' ± precision')
-                
+
             # ===== Bottom: % difference =====
-            percent_diff = 100 * (mock_fit - desi_model[redshift_index]) / desi_model[redshift_index]
-            ax2.plot(bin_centers, percent_diff, lw=1.0, marker='o', color=color)
-    
+            percent_diff = 100 * \
+                (mock_fit - desi_model[redshift_index]
+                 ) / desi_model[redshift_index]
+            ax2.plot(bin_centers, percent_diff,
+                     lw=1.0, marker='o', color=color)
+
         # Final plot styling
         ax1.set_ylabel(r"$P_{\mathrm{1D}}(k)$")
         ax1.legend(ncol=3, fontsize='small', loc='lower left')
         ax1.grid(True, which='both', ls=':', alpha=0.6)
-    
+
         ax2.axhline(0, color='black', lw=1, ls='--')
         ax2.set_ylabel(r"% Difference")
         ax2.set_xlabel(r"$k$ [km/s$^{-1}$]")
         ax2.grid(True, ls=':', alpha=0.6)
-    
+
         plt.savefig("Power_measured.png")
         plt.close()
 
@@ -633,23 +774,24 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         delta_f = delta_f
 
         bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
-        
+
         if plot == 'y':
             # Evaluate fits and models
             model_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
             desi_model = np.empty((z_target.size, bin_centers.size))
-    
+
             for i, j in enumerate(z_target):
-                desi_model[i] = evaluatePD13Lorentz((bin_centers, j), 
+                desi_model[i] = evaluatePD13Lorentz((bin_centers, j),
                                                     *DESI_EDR_PARAMETERS)
             p1d_precision = 1e-1
-            w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
+            # Window for k_arr
+            w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)
             ptrue = desi_model[:, w_k].ravel()
             e_p1d = p1d_precision * ptrue + 1e-8
-            
+
             idx = np.where(z_target == z)[0]
             redshift_index = idx[0]
-            
+
             # Extract data using index mask (w_k)
             temp_k = bin_centers[w_k]
             temp_p = desi_model[redshift_index, w_k]
@@ -660,18 +802,19 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
                                            sharex=True,
-                                           gridspec_kw={'height_ratios': [3, 1]},
+                                           gridspec_kw={
+                                               'height_ratios': [3, 1]},
                                            constrained_layout=True)
 
             ax1.loglog(bin_centers, statistic, label=f'Measured (N Mocks = {N_mocks})',
                        alpha=alpha_shade, lw=5, color='tab:orange')
             ax1.loglog(bin_centers, model_fit, label=f'PD13 Fit (Mock)',
                        lw=2, color='tab:orange', ls='--')
-            ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
-                      label='PD13 Fit (DESI EDR)', lw=2, color='tab:blue')
+            ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k],
+                       label='PD13 Fit (DESI EDR)', lw=2, color='tab:blue')
             ax1.fill_between(temp_k, temp_p - temp_e, temp_p + temp_e,
                              color='tab:blue', alpha=alpha_shade, label=' ± precision')
-            
+
             ax1.set_ylabel(rf'$P_{{1D}}(k),\ z={z}$')
             ax1.legend(loc='lower left')
             ax1.grid()
@@ -687,34 +830,53 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
         return bin_centers, statistic, popt
 
-        
+
 ### alternative method to calc. % diff between binned power measurement and model ###
-        
-# def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None, 
-#                        N_mocks=None, z_target=None, k_arrays=None, 
+
+# def fit_and_plot_power(delta_f=None, z=None, dv=None, safe_z=None,
+#                        N_mocks=None, z_target=None, k_arrays=None,
 #                        power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
-#     """
-#     Fit PD13 Lorentzian model to 1D power spectrum and optionally plot.
+    # """
+    # Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally plot comparisons.
 
-#     Parameters:
-#     - delta_f (array, optional): Normalized flux fluctuations.
-#     - z (float, optional): Redshift of current spectrum.
-#     - dv (float, optional): Velocity spacing.
-#     - safe_z (str, optional): Safe string version of redshift for filenames.
-#     - N_mocks (int, optional): Number of mocks used in the measurement.
-#     - z_target (array): Redshift grid used for evaluating DESI model.
-#     - k_arrays (list, optional): List of k-arrays for each redshift 
-#                             (used when all_z='y').
-#     - power_arrays (list, optional): List of P(k) arrays for each redshift 
-#                             (used when all_z='y').
-#     - all_z (str): 'y' to plot all redshifts together, 'n' for individual redshift.
-#     - plot (str): 'y' to generate plot, 'n' to skip plotting.
+    # This function fits the PD13 Lorentzian model to a measured 1D power spectrum
+    # either at a single redshift or across multiple redshifts. In "single-redshift mode"
+    # (`all_z='n'`), it returns fit results and optionally plots the comparison between
+    # the measured power spectrum, best-fit model, and the DESI EDR reference model.
+    # In "multi-redshift mode" (`all_z='y'`), it fits and plots all redshifts together,
+    # but does not return fit results.
 
-#     Returns:
-#     - bin_centers (array): k-values used for the fit (only if all_z='n').
-#     - statistic (array): Binned 1D power spectrum (only if all_z='n').
-#     - popt (tuple): Best-fit PD13 parameters (only if all_z='n').
-#     """
+    # Parameters:
+    #     delta_f (np.ndarray, optional): Normalized flux fluctuations for a single spectrum.
+    #     z (float, optional): Redshift corresponding to `delta_f`.
+    #     dv (float, optional): Velocity spacing [km/s] for the single-redshift spectrum.
+    #     dv_array (list or np.ndarray, optional): List of velocity spacings for each
+    #                                             redshift (used when `all_z='y'`).
+    #     safe_z (str, optional): String-formatted redshift for use in filenames.
+    #     N_mocks (int, optional): Number of mocks used in computing `delta_f`
+    #                             (for plot labels).
+    #     z_target (np.ndarray): Array of target redshifts for model evaluation.
+    #     k_arrays (list of np.ndarray, optional): List of k-arrays for each
+    #                                             redshift (used when `all_z='y'`).
+    #     power_arrays (list of np.ndarray, optional): List of power spectra corresponding
+    #                                             to `k_arrays` (currently unused).
+    #     delta_f_array (list of np.ndarray, optional): List of flux fluctuation arrays
+    #                                             at each redshift (used when `all_z='y'`).
+    #     all_z ({'y', 'n'}, default 'n'): If 'y', evaluate and plot all redshifts together;
+    #                                     if 'n', fit a single redshift.
+    #     plot ({'y', 'n'}, default 'y'): If 'y', generate plots of the measured, fit,
+    #                                     and DESI EDR models.
+
+    # Returns
+    # -------
+    # bin_centers : np.ndarray
+    #     Binned k-values used for fitting (only if `all_z='n'`).
+    # statistic : np.ndarray
+    #     Binned power spectrum values (only if `all_z='n'`).
+    # popt : tuple
+    #     Best-fit parameters for the PD13 Lorentzian model
+    #     (only if `all_z='n'`).
+    # """
 #     if all_z == 'y' and plot == 'y':
 #         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
 #                                        sharex=True,
@@ -722,7 +884,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 #                                        constrained_layout=True)
 #         cmap = plt.get_cmap('rainbow')
 #         norm = plt.Normalize(vmin=min(z_target), vmax=max(z_target))
-    
+
 #         for i, z in enumerate(z_target):
 #             k = k_arrays[i]
 #             delta_f = delta_f_array[i]
@@ -730,48 +892,48 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
 #             # ===== Fit PD13 model to measured power =====
 #             bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
-    
+
 #             # Evaluate fits and models
 #             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
 #             desi_model = np.empty((z_target.size, bin_centers.size))
-    
-#             desi_model[i] = evaluatePD13Lorentz((bin_centers, z), 
+
+#             desi_model[i] = evaluatePD13Lorentz((bin_centers, z),
 #                                                     *DESI_EDR_PARAMETERS)
 #             p1d_precision = 1e-1
 #             w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
 #             ptrue = desi_model[:, w_k].ravel()
 #             e_p1d = p1d_precision * ptrue + 1e-8
-                
+
 #             idx = np.where(z_target == z)[0]
 #             redshift_index = idx[0]
-                
+
 #             # Extract data using index mask (w_k)
 #             temp_k = bin_centers[w_k]
 #             temp_p = desi_model[redshift_index, w_k]
 #             temp_e = np.full_like(temp_k, e_p1d[redshift_index])
-               
+
 #             # ===== Top: Power spectrum fit comparison =====
-#             ax1.loglog(bin_centers, statistic, color=color, alpha=0.15, linewidth=5) 
-#             ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-', 
+#             ax1.loglog(bin_centers, statistic, color=color, alpha=0.15, linewidth=5)
+#             ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-',
 #                         label=f'z = {z}')
-#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
-#                         color=color, ls='--') 
-                
+#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k],
+#                         color=color, ls='--')
+
 #             # ===== Bottom: % difference =====
 #             # Calculate percent difference between the measured power and the DESI model
 #             percent_diff = 100 * (statistic - desi_model[redshift_index]) / desi_model[redshift_index]
 #             ax2.plot(bin_centers, percent_diff, lw=1.0, marker='o', color=color)
-    
+
 #         # Final plot styling
 #         ax1.set_ylabel(r"$P_{\mathrm{1D}}(k)$")
 #         ax1.legend(ncol=3, fontsize='small', loc='lower left')
 #         ax1.grid(True, which='both', ls=':', alpha=0.6)
-    
+
 #         ax2.axhline(0, color='black', lw=1, ls='--')
 #         ax2.set_ylabel(r"% Difference")
 #         ax2.set_xlabel(r"$k$ [km/s$^{-1}$]")
 #         ax2.grid(True, ls=':', alpha=0.6)
-    
+
 #         plt.savefig("test_Power_measured.png")
 #         plt.close()
 
@@ -781,23 +943,23 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 #         delta_f = delta_f
 
 #         bin_centers, statistic, *popt = fit_PD13Lorentz(delta_f, dv, z)
-        
+
 #         if plot == 'y':
 #             # Evaluate fits and models
 #             model_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
 #             desi_model = np.empty((z_target.size, bin_centers.size))
-    
+
 #             for i, j in enumerate(z_target):
-#                 desi_model[i] = evaluatePD13Lorentz((bin_centers, j), 
+#                 desi_model[i] = evaluatePD13Lorentz((bin_centers, j),
 #                                                     *DESI_EDR_PARAMETERS)
 #             p1d_precision = 1e-1
 #             w_k = (bin_centers > 1e-5) & (bin_centers < 0.05)  # Window for k_arr
 #             ptrue = desi_model[:, w_k].ravel()
 #             e_p1d = p1d_precision * ptrue + 1e-8
-            
+
 #             idx = np.where(z_target == z)[0]
 #             redshift_index = idx[0]
-            
+
 #             # Extract data using index mask (w_k)
 #             temp_k = bin_centers[w_k]
 #             temp_p = desi_model[redshift_index, w_k]
@@ -816,11 +978,11 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 #                        alpha=alpha_shade, lw=5, color='tab:orange')
 #             ax1.loglog(bin_centers, model_fit, label=f'PD13 Fit (Mock)',
 #                        lw=2, color='tab:orange', ls='--')
-#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k], 
+#             ax1.loglog(bin_centers[w_k], desi_model[redshift_index, w_k],
 #                       label='PD13 Fit (DESI EDR)', lw=2, color='tab:blue')
 #             ax1.fill_between(temp_k, temp_p - temp_e, temp_p + temp_e,
 #                              color='tab:blue', alpha=alpha_shade, label=' ± precision')
-            
+
 #             ax1.set_ylabel(rf'$P_{{1D}}(k),\ z={z}$')
 #             ax1.legend(loc='lower left')
 #             ax1.grid()
@@ -929,11 +1091,11 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
         velocity_grid (np.ndarray): x-axis values for velocity space.
         field (np.ndarray): The field to plot.
         space (str, optional): Plotting mode - 'k' for kmodes, 'v' for velocity space,
-                                            or 'z' for redshifted velocity space 
+                                            or 'z' for redshifted velocity space
                                             (default: 'v').
         sliced (str, optional): Whether to slice the data ('y' or 'n'). Default 'y'.
         min_slice (int, optional): Start index for slicing. Default is 0.
-        max_slice (int, optional): End index for slicing. Default is None 
+        max_slice (int, optional): End index for slicing. Default is None
                                                         (to end of array).
 
     Saves:
@@ -1178,7 +1340,7 @@ def main():
         if args.power_files:
             raise ValueError(
                 "Number of power files must match number of redshifts.")
-                # Otherwise, user didn't supply files, which is OK
+            # Otherwise, user didn't supply files, which is OK
 
     # fitting params (optional)
     fitting_params = parse_fitting_params(args.fit_params)
@@ -1200,12 +1362,12 @@ def main():
         dv = dv_z_model(z)
         dv_per_z_array.append(dv)
         # print(f'dv for z = {z}: {dv} km/s')
-        
-        start_time = time.time()    
+
+        start_time = time.time()
         safe_z = str(z).replace('.', '-')
-        
+
         k_array, power_array = process_power_file(safe_z, power_file)
-        
+
         temp_mean_flux = []
         delta_f_array = []
         power_per_mock = []
@@ -1215,7 +1377,8 @@ def main():
             gaussian_random_field_v = generate_gaussian_random_field()
             gaussian_random_field_k = np.fft.rfft(gaussian_random_field_v)
 
-            kmodes = (np.fft.rfftfreq(n=gaussian_random_field_v.size, d=dv) * 2 * np.pi) + 1e-12
+            kmodes = (np.fft.rfftfreq(
+                n=gaussian_random_field_v.size, d=dv) * 2 * np.pi) + 1e-12
 
             delta_b_tilde, delta_b_v, P_k = delta_transform_1d(
                 k_array, power_array, gaussian_random_field_k, dv)
@@ -1223,7 +1386,7 @@ def main():
             # print(f'sigma2 = {sigma2}')
             # # variance_1d = delta_b_v.var()
             # print(f'delta_b_v.var() = {delta_b_v.var()}')
-            variance_1d = sigma2  
+            variance_1d = sigma2
             delta_b_z = delta_b_v * a_z(z, nu)
             redshifted_variance_1d = variance_1d * a2_z(z, nu)
 
@@ -1252,14 +1415,14 @@ def main():
 
         delta_f_per_z = np.concatenate(delta_f_array)
         bin_centers, statistic, popt = fit_and_plot_power(
-            delta_f=delta_f_per_z, z=z, dv=dv, safe_z=safe_z, 
-            N_mocks=args.N_mocks, z_target=z_target, 
+            delta_f=delta_f_per_z, z=z, dv=dv, safe_z=safe_z,
+            N_mocks=args.N_mocks, z_target=z_target,
             all_z='n', plot='y')
 
         if redshift_index == 0:
             len_k_bins = len(statistic)
             len_delta_f = len(delta_f_per_z)
-            
+
             power_per_z_array = np.zeros((len(z_target), len_k_bins))
             k_arrays = np.zeros((len(z_target), len_k_bins))
             delta_f_per_z_array = np.zeros((len(z_target), len_delta_f))
@@ -1313,9 +1476,10 @@ def main():
     plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array)
 
     fit_and_plot_power(z_target=z_target, k_arrays=k_arrays,
-                       power_arrays=power_per_z_array, 
-                       delta_f_array = delta_f_per_z_array, 
+                       power_arrays=power_per_z_array,
+                       delta_f_array=delta_f_per_z_array,
                        dv_array=dv_per_z_array, all_z='y')
+
 
 if __name__ == "__main__":
     main()
