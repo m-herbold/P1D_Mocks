@@ -2,10 +2,9 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.fft import fft, ifft, rfft, irfft
-from scipy.stats import binned_statistic
 from scipy import integrate
 from scipy.optimize import curve_fit
+from scipy.stats import binned_statistic
 from scipy.interpolate import InterpolatedUnivariateSpline
 from pathlib import Path
 import pandas as pd
@@ -48,8 +47,8 @@ lambda_0 = 1216    # rest wavelength in Angstroms (for Lyα)
 lambda_min = 3600  # minimum wavelength in Angstroms
 lambda_max = 9800  # maximum wavelength in Angstroms
 
-size = 2**20
-dv_fid = 0.1
+size = 2**22
+dv_fid = 1.0
 velocity_grid = np.arange(size) - size/2
 v_min = (lambda_min / lambda_0 - 1) * c
 v_max = (lambda_max / lambda_0 - 1) * c
@@ -235,7 +234,7 @@ def lambda_c(z, lambda0=lambda_0):
 
     Args:
         z (float or np.ndarray): Redshift value(s).
-        lambda0 (float, optional): Rest-frame reference wavelength 
+        lambda0 (float, optional): Rest-frame reference wavelength
                                 (default: lambda_0).
 
     Returns:
@@ -253,11 +252,11 @@ def generate_wavelength_grid(velocity_grid, z, lambda_min=lambda_min,
     Args:
         velocity_grid (np.ndarray): Grid of velocities (km/s).
         z (float): Target redshift.
-        lambda_min (float, optional): Minimum observed-frame wavelength 
+        lambda_min (float, optional): Minimum observed-frame wavelength
                                     (default: 3600 Å).
-        lambda_max (float, optional): Maximum observed-frame wavelength 
+        lambda_max (float, optional): Maximum observed-frame wavelength
                                     (default: 9800 Å).
-        lambda0 (float, optional): Rest-frame reference wavelength 
+        lambda0 (float, optional): Rest-frame reference wavelength
                                     (default: lambda_0).
 
     Returns:
@@ -424,7 +423,7 @@ def f_of_z(x_z):
     Calculates the z-dependent flux.
 
     Args:
-        x_of_z (float or np.ndarray): The computed x_of_z(z) factor for 
+        x_of_z (float or np.ndarray): The computed x_of_z(z) factor for
         calculating the flux.
 
     Returns:
@@ -560,7 +559,8 @@ def delta_F(z, variance, input_flux, z0=PD13_PIVOT_Z):
     Returns:
         np.ndarray: Fractional flux fluctuations δ_F.
     """
-    f_bar = input_flux.mean()
+    # f_bar = input_flux.mean()
+    f_bar = mean_flux(z, variance, z0)
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
     return (delta_f)
@@ -643,25 +643,25 @@ def fit_PD13Lorentz(delta_f, dv, z):
     power = P_F(delta_f, dv)
     N = len(delta_f)
     kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
+    w_k = (kmodes > 0) & (kmodes < 10e1)
 
-    statistic, bin_edges, binnumber = binned_statistic(x=kmodes,
-                                                       values=power,
+    statistic, bin_edges, binnumber = binned_statistic(x=kmodes[w_k],
+                                                       values=power[w_k],
                                                        statistic='mean',
-                                                       # bins=int(np.round(delta_f.size / 500)))
                                                        bins=10000)
-    # bins = 5000)
-    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
 
-    # Remove any invalid points
+    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    window = (bin_centers > 1e-5) & (bin_centers < 0.10)
+
+    # Remove invalid points
     valid = np.isfinite(statistic) & np.isfinite(bin_centers)
     bin_centers = bin_centers[valid]
     statistic = statistic[valid]
 
-    window = (bin_centers > 1e-5) & (bin_centers < 0.10)
-
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
 
+    # Now safe to call curve_fit
     popt_mock, pcov_mock = curve_fit(
         lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
             (k, z), A, n, alpha, B, beta, lmd),
@@ -695,7 +695,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                        N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
     """
-    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally 
+    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally
     plot comparisons.
 
     This function fits the PD13 Lorentzian model to a measured 1D power spectrum
@@ -765,7 +765,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             # ===== Top: Power spectrum fit comparison =====
             ax1.loglog(bin_centers, stat, color=color,
-                       alpha=0.5, linewidth=3, label='z')
+                       alpha=0.5, linewidth=3, label=f'z = {z}')
             # ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-',
             #            label=f'z = {z}')
             ax1.loglog(bin_centers[w_k], desi_model[w_k],
@@ -790,7 +790,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         plt.close()
 
     else:
-        # Standard single-redshift mode
+        # Standard single redshift mode
         if z_target is None:
             z_target = np.array([z])
         safe_z = str(z).replace('.', '-')
@@ -815,15 +815,14 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             percent_diff_naim_fit = 100 * \
                 (naim_2020_fit - desi_model) / desi_model
 
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(9, 8), sharex=True,
-                                                gridspec_kw={'height_ratios': [4, 1, 1]})
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
+                                           sharex=True,
+                                           gridspec_kw={
+                                               'height_ratios': [3, 1]},
+                                           constrained_layout=True)
 
             ax1.loglog(bin_centers, stat, color='tab:orange', alpha=0.5,
                        label=f'Mock Measured (N = {N_mocks})')
-            # ax1.loglog(bin_centers, mock_fit, color='tab:orange',
-            #            label='Mock Fit (PD13)', lw=2)
-            ax1.loglog(bin_centers[w_k], naim_2020_fit[w_k],
-                       color='black', label=r'Karacayli et al., 2020')
             ax1.loglog(bin_centers[w_k], desi_model[w_k], ls='--',
                        color='tab:blue', label=r'DESI EDR Fit (PD13)')
             ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o', label='DESI EDR',
@@ -834,25 +833,31 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             ax2.semilogx(bin_centers, percent_diff_mock_measure, alpha=0.5,
                          color='darkorange', label='Mock Measure')
-            # ax2.semilogx(bin_centers, percent_diff_mock_fit,
-            #              color='darkred', label='Mock Fit')
             ax2.axhline(0, ls='--', color='gray')
             ax2.grid(True)
             ax2.legend(loc='upper left')
+            ax2.set_ylabel('% Difference')
+            ax2.set_xlabel(r'k $[km/s]^{-1}$')
 
-            ax3.semilogx(bin_centers, percent_diff_naim_fit,
-                         color='black', label='Karacayli et al., 2020')
-            ax3.axhline(0, ls='--', color='gray')
-            ax3.set_xlabel(r'k $[km/s]^{-1}$')
-            ax3.grid(True)
-            fig.text(0.02, 0.25, "% Difference", va='center',
-                     rotation='vertical', fontsize=16)
-            ax3.set_ylabel("")
+            # ax3.semilogx(bin_centers, percent_diff_naim_fit,
+            #              color='black', label='Karacayli et al., 2020')
+            # ax3.axhline(0, ls='--', color='gray')
+            # ax3.set_xlabel(r'k $[km/s]^{-1}$')
+            # ax3.grid(True)
+            # fig.text(0.02, 0.25, "% Difference", va='center',
+            #          rotation='vertical', fontsize=16)
+            # ax3.set_ylabel("")
 
             plt.legend()
             plt.tight_layout()
 
             print(f'Saving: {safe_z}_power_fit.png')
+
+            fig.text(0.01, -0.02,
+                     f"Max  % diff: {percent_diff_mock_measure.max():.2f}%\n"
+                     f"Mean % diff: {percent_diff_mock_measure.mean():.2f}%",
+                     fontsize=9, ha='left', va='top')
+
             plt.savefig(f'{safe_z}_power_fit.png')
             plt.close()
 
@@ -1113,7 +1118,7 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     # Top panel: mean flux comparison
     ax1.plot(model_z, model_flux_array,
              label='Turner et al., 2024', lw=6, alpha=0.5)
-    ax1.plot(z_target, mean_flux_array, label='Measured (GHQ)',
+    ax1.plot(z_target, mean_flux_array, label='Measured',
              ls='--', color='black', marker='o')
 
     ax1.set_ylabel(r'$\bar F(z)$')
@@ -1204,11 +1209,11 @@ def main():
         print(f'\nProcessing z = {z}')
         print(f'N Mocks per z: {args.N_mocks}')
 
-        # dv = dv_z_model(z)
         dv = dv_fid
         dv_per_z_array.append(dv)
-        # print(f'dv for z = {z}: {dv} km/s')
 
+        time_1 = time.strftime("%H:%M:%S")
+        print("Start Time:  ", time_1)
         start_time = time.time()
         safe_z = str(z).replace('.', '-')
 
@@ -1216,8 +1221,6 @@ def main():
 
         temp_mean_flux = []
         delta_f_array = []
-        # power_per_mock = []
-        # mean_power_per_z = []
 
         for i in range(args.N_mocks):
             gaussian_random_field_v = generate_gaussian_random_field()
@@ -1239,16 +1242,14 @@ def main():
             f_z = f_of_z(x_z)
 
             # save value for mean flux for each transmission file at this z
-            # temp_mean_flux.append(mean_flux(z, variance_1d, tau0, tau1, nu))
-            temp_mean_flux.append(f_z.mean())
+            temp_mean_flux.append(mean_flux(z, variance_1d, z0))
+            # temp_mean_flux.append(f_z.mean())
 
             # save a fit to power for each transmission file
-            delta_f = delta_F(z=z, variance=redshifted_variance_1d,
+            delta_f = delta_F(z=z, variance=variance_1d,
                               input_flux=f_z)
             delta_f_array.append(delta_f)
             measured_power = P_F(delta_f, dv)
-
-            #################################
 
             # export transmission file
             filepath = export_transmission(safe_z, velocity_grid, f_z)
@@ -1275,6 +1276,8 @@ def main():
         k_arrays[redshift_index] = bin_centers
         delta_f_per_z_array[redshift_index] = delta_f_per_z
 
+        time_2 = time.strftime("%H:%M:%S")
+        print("End Time:    ", time_2)
         end_time = time.time()
         elapsed_time = end_time - start_time
         minutes = int(elapsed_time // 60)

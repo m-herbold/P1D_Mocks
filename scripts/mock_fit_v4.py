@@ -858,7 +858,8 @@ def extrapolate_xiG(v_array, xi_G, safe_z, save_cf):
     # Save to file if requested
     if save_cf == 'half':
         export_data_half = np.column_stack((v_extrapolated, xi_g_extrapolated))
-        output_path = os.path.join(output_dir, f'{safe_z}_xiG_half_output.txt')
+        output_path = os.path.join(
+            output_dir, f'{safe_z}_xiG_half_output.txt')
         np.savetxt(output_path, export_data_half, fmt="%.6f",
                    delimiter="\t", header="Velocity\tXi_G_fit")
 
@@ -896,7 +897,8 @@ def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
     os.makedirs(output_dir, exist_ok=True)
 
     # Load the half CF file
-    half_cf_path = os.path.join(output_dir, f'{safe_z}_xiG_half_output.txt')
+    half_cf_path = os.path.join(
+        output_dir, f'{safe_z}_xiG_half_output.txt')
     data = np.loadtxt(half_cf_path)
     file_v = data[:, 0]         # First column
     file_xiG = data[:, 1]       # Second column
@@ -1342,7 +1344,8 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
 
 
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
-                         mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real, z_target):
+                         mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real, 
+                         z_target):
     """
     Plots the recovered power spectrum and percent difference residuals.
 
@@ -1516,7 +1519,7 @@ def main():
         interp_size = 2**20
         new_v_array, k_array_fine, p1d_fine = interpolate_power_for_fft(
             interp_size, default_dv, k_array_input, p1d_input, log_interp=True)
-            # False for linear
+        # False for linear
 
         # Calculate target xi_f from target p_f
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
@@ -1594,7 +1597,8 @@ def main():
 
         if args.plot_xig_fit:
             plot_xig_fit(safe_z, v_array_downsampled, xi_g_optimized,
-                         zero_point, v_extrapolated, xi_g_extrapolated, new_points_only)
+                         zero_point, v_extrapolated, xi_g_extrapolated, 
+                         new_points_only)
 
         if args.plot_xif_recovered:
             plot_xi_f_recovered(safe_z, v_fine, xif_fine, v_array_downsampled,
