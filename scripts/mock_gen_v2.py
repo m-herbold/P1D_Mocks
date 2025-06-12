@@ -852,8 +852,8 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             print(f'Saving: {safe_z}_power_fit.png')
 
             fig.text(0.01, -0.02,
-                     f"Max  % diff: {percent_diff_mock_measure.max():.2f}%\n"
-                     f"Mean % diff: {percent_diff_mock_measure.mean():.2f}%",
+                     f"Max  % diff: {np.abs(percent_diff_mock_measure[w_k]).max():.2f}%\n"
+                     f"Mean % diff: {percent_diff_mock_measure[w_k].mean():.2f}%",
                      fontsize=9, ha='left', va='top')
 
             plt.savefig(f'{safe_z}_power_fit.png')
