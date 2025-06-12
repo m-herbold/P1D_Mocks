@@ -302,10 +302,10 @@ def delta_transform_1d(file_k_array, file_power_array,
     N_rfft = gaussian_random_field_k.shape[0]
     N = 2 * (N_rfft - 1)  # real-space size
     k = np.fft.rfftfreq(N, d=dv) * 2 * np.pi  # k [1/km]
-
+    
     # Interpolate with smooth spline and constant extrapolation
-    power_interp = InterpolatedUnivariateSpline(file_k_array,
-                                                file_power_array,
+    power_interp = InterpolatedUnivariateSpline(file_k_array, 
+                                                file_power_array, 
                                                 k=1, ext=1)
     P_k = power_interp(k)
 
@@ -487,11 +487,10 @@ def mean_flux(z, variance, z0=PD13_PIVOT_Z):
     Returns:
         float: The mean transmitted flux ⟨F⟩ at the given redshift.
     """
-    def integrand(x): return np.exp((-(x**2) / (2 * variance)) -
-                                    ((xz(z, variance)) * np.exp(2 * (a_z(z)) * x)))
+    integrand = lambda x: np.exp((-(x**2) / (2 * variance)) - ((xz(z, variance)) * np.exp(2 * (a_z(z)) * x)))
     integral = integrate.quad(integrand, -np.inf, np.inf)[0]
     value = prefactor(variance) * integral
-    return (value)
+    return(value)
 
 
 def turner24_mf(z):
@@ -559,11 +558,10 @@ def delta_F(z, variance, input_flux, z0=PD13_PIVOT_Z):
     Returns:
         np.ndarray: Fractional flux fluctuations δ_F.
     """
-    # f_bar = input_flux.mean()
-    f_bar = mean_flux(z, variance, z0)
+    f_bar = mean_flux(z,variance,z0)
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
-    return (delta_f)
+    return(delta_f)
 
 
 def P_F(delta_f, dv):
@@ -643,16 +641,16 @@ def fit_PD13Lorentz(delta_f, dv, z):
     power = P_F(delta_f, dv)
     N = len(delta_f)
     kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
-    w_k = (kmodes > 0) & (kmodes < 10e1)
-
+    w_k =  (kmodes > 0) & (kmodes < 10e1)   
+    bins = 10000
     statistic, bin_edges, binnumber = binned_statistic(x=kmodes[w_k],
                                                        values=power[w_k],
-                                                       statistic='mean',
-                                                       bins=10000)
-
+                                                       statistic='mean', 
+                                                       bins = bins)    
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    window = (bin_centers > 1e-5) & (bin_centers < 0.10)
-
+ 
+    # window = (bin_centers > 1e-5) & (bin_centers < 0.10)  
+    window = (bin_centers > 0) & (bin_centers < 1.0)  
     # Remove invalid points
     valid = np.isfinite(statistic) & np.isfinite(bin_centers)
     bin_centers = bin_centers[valid]
@@ -660,13 +658,13 @@ def fit_PD13Lorentz(delta_f, dv, z):
 
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
-
+    
     # Now safe to call curve_fit
     popt_mock, pcov_mock = curve_fit(
         lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
-            (k, z), A, n, alpha, B, beta, lmd),
+            (k,z), A, n, alpha, B, beta, lmd),
         bin_centers, statistic, p0=p0, maxfev=20000)
-
+    
     return bin_centers[window], statistic[window], *popt_mock
 
 
@@ -753,7 +751,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             # ===== Fit PD13 model to measured power =====
             bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
-            w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
+            w_k = (bin_centers > 1e-5) & (bin_centers < 0.1) 
 
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
@@ -764,7 +762,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             percent_diff_mock_fit = 100 * (mock_fit - desi_model) / desi_model
 
             # ===== Top: Power spectrum fit comparison =====
-            ax1.loglog(bin_centers, stat, color=color,
+            ax1.loglog(bin_centers[w_k], stat[w_k], color=color,
                        alpha=0.5, linewidth=3, label=f'z = {z}')
             # ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-',
             #            label=f'z = {z}')
@@ -772,7 +770,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                        color=color, ls='--')
 
             # ===== Bottom: % difference =====
-            ax2.plot(bin_centers, percent_diff_mock_measure,
+            ax2.plot(bin_centers[w_k], percent_diff_mock_measure[w_k],
                      lw=1.0, color=color)
 
         # Final plot styling
@@ -821,7 +819,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                                                'height_ratios': [3, 1]},
                                            constrained_layout=True)
 
-            ax1.loglog(bin_centers, stat, color='tab:orange', alpha=0.5,
+            ax1.loglog(bin_centers[w_k], stat[w_k], color='tab:orange', alpha=0.5,
                        label=f'Mock Measured (N = {N_mocks})')
             ax1.loglog(bin_centers[w_k], desi_model[w_k], ls='--',
                        color='tab:blue', label=r'DESI EDR Fit (PD13)')
@@ -831,7 +829,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             ax1.legend(loc='lower left')
             ax1.grid(True)
 
-            ax2.semilogx(bin_centers, percent_diff_mock_measure, alpha=0.5,
+            ax2.semilogx(bin_centers[w_k], percent_diff_mock_measure[w_k], alpha=0.5,
                          color='darkorange', label='Mock Measure')
             ax2.axhline(0, ls='--', color='gray')
             ax2.grid(True)
@@ -1235,8 +1233,11 @@ def main():
             variance_1d = sigma2
             delta_b_z = delta_b_v * a_z(z)
             redshifted_variance_1d = variance_1d * a2_z(z)
+            variance_1d_field = delta_b_v.var()
+            redshifted_variance_1d_field = variance_1d_field * a2_z(z)
 
-            n_z = lognormal_transform(delta_b_z, redshifted_variance_1d)
+            # n_z = lognormal_transform(delta_b_z, redshifted_variance_1d)
+            n_z = lognormal_transform(delta_b_z, redshifted_variance_1d_field)
             t_z = t_of_z(z)
             x_z = x_of_z(t_z, n_z)
             f_z = f_of_z(x_z)
