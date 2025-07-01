@@ -51,8 +51,8 @@ WW1, WW2 = np.meshgrid(gausshermite_wi_deg, gausshermite_wi_deg, indexing='ij')
 default_numvpoints = 2**22
 
 # default_dv = 11.0      # for z <= 2.0
-default_dv = 10.0      # for  2.1 <= z <= 2.5
-# default_dv = 1.0       # for z >= 2.6
+# default_dv = 10.0      # for  2.1 <= z <= 2.5
+default_dv = 1.0       # for z >= 2.6
 
 default_v_array = np.arange(default_numvpoints) * default_dv
 k_arr = 2. * np.pi * \
@@ -345,8 +345,7 @@ def Flux_d_z(delta_g, z, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
         z (float or np.ndarray): Redshift(s) at which to evaluate the flux.
         tau0 (float): The normalization factor for optical depth.
         tau1 (float): Exponent controlling the redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of
-                    lognormal transform.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
         z0 (float, optional): Pivot redshift for normalization
                             (default: PD13_PIVOT_Z).
@@ -562,8 +561,7 @@ def process_power_data(z_target, power_file=None):
 
 def scale_input_power(redshift_index, k_array, P1D_array, power_file=None):
     """
-    Scales the input P1D data to match the default PD13 model behavior for
-    a given z.
+    Scales the input P1D data to match the default PD13 model behavior for a given z.
 
     Args:
         redshift_index (int): Index corresponding to the target redshift in
@@ -729,8 +727,7 @@ def lognXiFfromXiG_pointwise(z, xi_gauss, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_
 
 def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
     """
-    Computes the residuals between the target and calculated flux
-    correlation functions.
+    Computes the residuals between the target and calculated flux correlation functions.
 
     Args:
         xi_g (array-like): Current guess for Gaussian correlation function values.
@@ -738,11 +735,9 @@ def objective(xi_g, z, xi_f_target, tau0, tau1, nu, sigma2, z0=PD13_PIVOT_Z):
         xi_f_target (array-like): Target flux correlation function values.
         tau0 (float): The normalization factor for optical depth.
         tau1 (float): Exponent controlling redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of
-                    lognormal transform.
+        nu (float): Exponent controlling redshift evolution of lognormal transform.
         sigma2 (float): Variance of the Gaussian field.
-        z0 (float, optional): Pivot redshift for normalization
-                    (default: PD13_PIVOT_Z).
+        z0 (float, optional): Pivot redshift for normalization (default: PD13_PIVOT_Z).
 
     Returns:
         array-like: Residuals (difference) between the calculated and target
@@ -864,7 +859,7 @@ def extrapolate_xiG(v_array, xi_G, safe_z, save_cf):
     if save_cf == 'half':
         export_data_half = np.column_stack((v_extrapolated, xi_g_extrapolated))
         output_path = os.path.join(
-            output_dir, f'{safe_z}_xiG_half_output.txt')
+            output_dir, f'test{safe_z}_xiG_half_output.txt')
         np.savetxt(output_path, export_data_half, fmt="%.6f",
                    delimiter="\t", header="Velocity\tXi_G_fit")
 
@@ -903,7 +898,7 @@ def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
 
     # Load the half CF file
     half_cf_path = os.path.join(
-        output_dir, f'{safe_z}_xiG_half_output.txt')
+        output_dir, f'test{safe_z}_xiG_half_output.txt')
     data = np.loadtxt(half_cf_path)
     file_v = data[:, 0]         # First column
     file_xiG = data[:, 1]       # Second column
@@ -938,7 +933,7 @@ def mirror_xiG(v_extrapolated, xi_g_extrapolated, safe_z, save_cf):
 
     if save_cf == 'full':
         full_cf_path = os.path.join(
-            output_dir, f'{safe_z}_xiG_full_output.txt')
+            output_dir, f'test{safe_z}_xiG_full_output.txt')
         np.savetxt(full_cf_path, export_data_full, fmt="%.6f",
                    delimiter="\t", header="Velocity\tXi_G_fit")
 
@@ -960,7 +955,7 @@ def save_PG(safe_z):
     os.makedirs(p1d_dir, exist_ok=True)
 
     # Load full CF data
-    path_to_cf = os.path.join(cf_dir, f'{safe_z}_xiG_full_output.txt')
+    path_to_cf = os.path.join(cf_dir, f'test{safe_z}_xiG_full_output.txt')
     data = np.loadtxt(path_to_cf)
     full_v = data[:, 0]
     full_xiG = data[:, 1]
@@ -973,7 +968,7 @@ def save_PG(safe_z):
         np.fft.rfftfreq(len(full_xiG), d=full_v_spacing)
 
     # Save power spectrum
-    export_filename = os.path.join(p1d_dir, f'P_G-{safe_z}.txt')
+    export_filename = os.path.join(p1d_dir, f'testP_G-{safe_z}.txt')
     np.savetxt(export_filename, np.column_stack((file_xig_karr, file_xig_power)),
                header='k [km/s]^-1\tP(k)', fmt='%.6e')
 
@@ -1076,7 +1071,7 @@ def downsample_array(v_array, xi_array, downsample_size, log_scale=True):
         tuple: A tuple containing:
             - v_array_downsampled (np.ndarray): Downsampled velocity array.
             - xif_downsampled (np.ndarray): Downsampled correlation function array.
-            - dv_downsampled (np.ndarray): Velocity spacing for downsampled array.
+            - dv_downsampled (np.ndarray): Velocity spacing for the downsampled array.
     """
     velocity_abs = np.abs(v_array[1:])
 
@@ -1349,7 +1344,7 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
 
 
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
-                         mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real,
+                         mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real, 
                          z_target):
     """
     Plots the recovered power spectrum and percent difference residuals.
@@ -1531,7 +1526,8 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
         # Downsample xi_f (logarithmically)
-        downsample_size = 2**10
+        # downsample_size = 2**10
+        downsample_size = 2**7
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 
@@ -1603,7 +1599,7 @@ def main():
 
         if args.plot_xig_fit:
             plot_xig_fit(safe_z, v_array_downsampled, xi_g_optimized,
-                         zero_point, v_extrapolated, xi_g_extrapolated,
+                         zero_point, v_extrapolated, xi_g_extrapolated, 
                          new_points_only)
 
         if args.plot_xif_recovered:
