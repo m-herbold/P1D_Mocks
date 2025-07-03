@@ -283,7 +283,7 @@ def generate_gaussian_random_field(size=size, seed=None):
     return gaussian_random_field
 
 
-def delta_transform_1d(file_k_array, file_power_array, 
+def delta_transform_1d(file_k_array, file_power_array,
                        gaussian_random_field_k, dv):
     """
     Transforms a Gaussian white noise field in k-space to a correlated
@@ -303,10 +303,10 @@ def delta_transform_1d(file_k_array, file_power_array,
     N_rfft = gaussian_random_field_k.shape[0]
     N = 2 * (N_rfft - 1)  # real-space size
     k = np.fft.rfftfreq(N, d=dv) * 2 * np.pi  # k [1/km]
-    
+
     # Interpolate with smooth spline and constant extrapolation
-    power_interp = InterpolatedUnivariateSpline(file_k_array, 
-                                                file_power_array, 
+    power_interp = InterpolatedUnivariateSpline(file_k_array,
+                                                file_power_array,
                                                 k=1, ext=1)
     P_k = power_interp(k)
 
@@ -472,7 +472,7 @@ def xz(z, sigma2=sigma2_fid, tau0=tau0_fid, tau1=tau1_fid,
     return t_of_z(z, tau0, tau1, z0) * np.exp(-a2_z(z, nu, z0) * sigma2)
 
 
-# used for GHQ mean flux
+# used for GHQ mean flux -> pass field variance, not fitting param
 def mean_flux(z, variance, z0=PD13_PIVOT_Z):
     """
     Compute the mean flux using Gaussian-Hermite quadrature integration.
@@ -492,10 +492,11 @@ def mean_flux(z, variance, z0=PD13_PIVOT_Z):
     Returns:
         float: The mean transmitted flux ⟨F⟩ at the given redshift.
     """
-    integrand = lambda x: np.exp((-(x**2) / (2 * variance)) - ((xz(z, variance)) * np.exp(2 * (a_z(z)) * x)))
+    def integrand(x): return np.exp((-(x**2) / (2 * variance)) -
+                                    ((xz(z)) * np.exp(2 * (a_z(z)) * x)))
     integral = integrate.quad(integrand, -np.inf, np.inf)[0]
     value = prefactor(variance) * integral
-    return(value)
+    return (value)
 
 
 def turner24_mf(z):
@@ -565,14 +566,11 @@ def delta_F(z, variance, input_flux, z0=PD13_PIVOT_Z):
     Returns:
         np.ndarray: Fractional flux fluctuations δ_F.
     """
-    # f_bar = mean_flux(z, variance, z0)
-    # this implies that we are nromalizing by the predicted 
-    # mean flux, not the mean flux of the field itself
-    
-    f_bar = input_flux.mean()
-    # this normalizes by the field -> if we do this enough, 
-    # should approach the predicted value?
-    
+    # This should work now
+    f_bar = mean_flux(z, variance, z0)
+
+    # f_bar = input_flux.mean()
+
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
     return (delta_f)
@@ -655,16 +653,16 @@ def fit_PD13Lorentz(delta_f, dv, z):
     power = P_F(delta_f, dv)
     N = len(delta_f)
     kmodes = np.fft.rfftfreq(n=N, d=dv) * 2 * np.pi
-    w_k =  (kmodes > 0) & (kmodes < 10e2)   
+    w_k = (kmodes > 0) & (kmodes < 10e2)
     bins = 10000
     statistic, bin_edges, binnumber = binned_statistic(x=kmodes[w_k],
                                                        values=power[w_k],
-                                                       statistic='mean', 
-                                                       bins = bins)    
+                                                       statistic='mean',
+                                                       bins=bins)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
- 
-    # window = (bin_centers > 1e-5) & (bin_centers < 0.10)  
-    window = (bin_centers > 0) & (bin_centers < 1.0)  
+
+    # window = (bin_centers > 1e-5) & (bin_centers < 0.10)
+    window = (bin_centers > 0) & (bin_centers < 1.0)
     # Remove invalid points
     valid = np.isfinite(statistic) & np.isfinite(bin_centers)
     bin_centers = bin_centers[valid]
@@ -672,13 +670,13 @@ def fit_PD13Lorentz(delta_f, dv, z):
 
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
-    
+
     # Now safe to call curve_fit
     popt_mock, pcov_mock = curve_fit(
         lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
-            (k,z), A, n, alpha, B, beta, lmd),
+            (k, z), A, n, alpha, B, beta, lmd),
         bin_centers, statistic, p0=p0, maxfev=20000)
-    
+
     return bin_centers[window], statistic[window], *popt_mock
     # return bin_centers, statistic, *popt_mock
 
@@ -702,6 +700,25 @@ def process_EDR_DATA(z_target):
     subset['Pk_err'] = np.pi * subset['kepi'] / subset['kc']
 
     return subset['kc'], subset['Pk'], subset['Pk_err']
+
+
+def get_k_range_desi2025(z):
+    """Return kmin and kmax (s/km) for DESI DR1 resolution at redshift z."""
+    c = 299792.458        # km/s
+    delta_lambda = 0.8    # Angstrom (DESI)
+    lambda_lya = 1215.67  # Angstrom
+    R_z = (c * delta_lambda) / ((1 + z) * lambda_lya)
+    k_max = 0.5 * np.pi / R_z  # s/km
+    k_min = 0.001              # s/km, fixed by continuum limit
+    return k_min, k_max
+
+
+def compute_rms_error(measurement, target, mask=None):
+    if mask is not None:
+        measurement = measurement[mask]
+        target = target[mask]
+    frac_diff = (measurement - target) / target
+    return np.sqrt(np.mean(frac_diff**2))
 
 
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
@@ -758,8 +775,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         norm = plt.Normalize(vmin=min(z_target), vmax=max(z_target))
 
         for i, z in enumerate(z_target):
-            # k = k_arrays[i]
-            # p = power_arrays[i]
             dv = dv_array[i]
             delta_f = delta_f_array[i]
             color = cmap(norm(z))
@@ -779,8 +794,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             # ===== Top: Power spectrum fit comparison =====
             ax1.loglog(bin_centers[w_k], stat[w_k], color=color,
                        alpha=0.5, linewidth=3, label=f'z = {z}')
-            # ax1.loglog(bin_centers, mock_fit, lw=2, color=color, ls='-',
-            #            label=f'z = {z}')
             ax1.loglog(bin_centers[w_k], desi_model[w_k],
                        color=color, ls='--')
 
@@ -799,7 +812,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         ax2.grid(True, ls=':', alpha=0.6)
 
         print('Saving: Power_measured.png')
-        plt.savefig("test7_Power_measured.png")
+        plt.savefig("test3_Power_measured.png")
         plt.close()
 
     else:
@@ -811,6 +824,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         delta_f = delta_f
 
         bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
+        # generic k-mask
         w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
 
         edr_k, edr_p, edr_err = process_EDR_DATA(z)
@@ -864,14 +878,56 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             plt.legend()
             plt.tight_layout()
 
-            print(f'Saving: test7_{safe_z}_power_fit.png')
+            # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
+            wk_2020 = (bin_centers > 0.0005) & (
+                bin_centers < 0.112)  # DESI Lite
+            dynamic_k_min, dynamic_k_max = get_k_range_desi2025(z)
+            wk_2023 = (bin_centers > 0.000750) & (
+                bin_centers < 0.035)  # EDR measurement
+            wk_2025 = (bin_centers > dynamic_k_min) & (
+                bin_centers < dynamic_k_max)  # DR1
 
-            fig.text(0.01, -0.02,
-                     f"Max  % diff: {np.abs(percent_diff_mock_measure[w_k]).max():.2f}%\n"
-                     f"Mean % diff: {percent_diff_mock_measure[w_k].mean():.2f}%",
-                     fontsize=9, ha='left', va='top')
+            fig.text(
+                0.01, -0.02,
+                f"""
+                    wk_2020: 0.0005 < k < 0.112  [s/km]
 
-            plt.savefig(f'test7_{safe_z}_power_fit.png')
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2020):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2020].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2020]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2020):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2020].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2020]).max():.2f}%
+
+
+                    wk_2025: {dynamic_k_min:.4f} < k < {dynamic_k_max:.4f}  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2025):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2025].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2025]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2025):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2025].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2025]).max():.2f}%
+
+
+                    wk_2023: {0.000750} < k < {0.045}  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2023):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2023].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2023]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2023):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2023].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2023]).max():.2f}%
+
+                    """,
+                fontsize=9, ha='left', va='top'
+            )
+
+            print(f'Saving: test3_{safe_z}_power_fit.png')
+            plt.savefig(f'test3_{safe_z}_power_fit.png')
             plt.close()
 
         return bin_centers, stat, popt
@@ -1152,10 +1208,22 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     ax2.set_ylabel('% Difference')
     ax2.grid()
 
-    print('Saving: Mean_Flux_Measured.png')
+    # Format the mean flux measurements as strings
+    flux_text = "\n".join(
+        [f"z = {z:.2f},   F(z) = {f:.3f}" for z,
+         f in zip(z_target, mean_flux_array)]
+    )
+
+    # Add the text to the bottom of the figure
+    fig.text(
+        0.01, -0.02,
+        f"Mean Flux Measurements:\n{flux_text}",
+        fontsize=9, ha='left', va='top'
+    )
 
     # Save figure
-    plt.savefig('test7_Mean_Flux_Measured.png')
+    print('Saving: Mean_Flux_Measured.png')
+    plt.savefig('test3_Mean_Flux_Measured.png')
     plt.close()
 
 
@@ -1241,14 +1309,13 @@ def main():
 
         temp_mean_flux = []
         delta_f_array = []
-        # f_z_array = []
 
         for i in range(args.N_mocks):
             gaussian_random_field_v = generate_gaussian_random_field()
             gaussian_random_field_k = np.fft.rfft(gaussian_random_field_v) * dv
 
             kmodes = (np.fft.rfftfreq(
-                n=gaussian_random_field_v.size, d=dv) * 2 * np.pi) #+ 1e-12
+                n=gaussian_random_field_v.size, d=dv) * 2 * np.pi)  # + 1e-12
 
             delta_b_tilde, delta_b_v, P_k = delta_transform_1d(
                 k_array, power_array, gaussian_random_field_k, dv)
@@ -1260,19 +1327,16 @@ def main():
             redshifted_variance_1d_field = variance_1d_field * a2_z(z)
 
             n_z = lognormal_transform(delta_b_z, redshifted_variance_1d)
-            # n_z = lognormal_transform(delta_b_z, redshifted_variance_1d_field)
             t_z = t_of_z(z)
             x_z = x_of_z(t_z, n_z)
             f_z = f_of_z(x_z)
 
             # save value for mean flux for each transmission file at this z
-            # temp_mean_flux.append(mean_flux(z, variance_1d, z0)) # mean flux, predicted(?)
-            temp_mean_flux.append(f_z.mean()) # mean flux of the field
+            # this should work now
+            temp_mean_flux.append(mean_flux(z, variance_1d_field, z0))
+            # temp_mean_flux.append(f_z.mean()) # mean flux of the field
 
-            # save a fit to power for each transmission file
-            # delta_f = delta_F(z=z, variance=variance_1d,
-            #                   input_flux=f_z)
-            delta_f = delta_F(z=z, 
+            delta_f = delta_F(z=z,
                               variance=variance_1d_field,
                               input_flux=f_z)
             delta_f_array.append(delta_f)
@@ -1284,14 +1348,6 @@ def main():
 
         mean_flux_per_z = np.mean(temp_mean_flux)
         mean_flux_array.append(mean_flux_per_z)
-
-        # check that .mean() approaches analytic expression 
-        # with increased number of mocks
-        print(f'Mean Flux using .mean():  {mean_flux_per_z}')
-        print(f'Mean Flux using function: {mean_flux(z, variance_1d, z0)}')
-        print(f'difference:      {np.abs(mean_flux(z, variance_1d) - mean_flux_per_z)}')
-        print(f'% diff (turner): {np.abs((f_z.mean() - turner24_mf(z)) / turner24_mf(z) * 100)}')
-
 
         delta_f_per_z = np.concatenate(delta_f_array)
         bin_centers, statistic, popt = fit_and_plot_power(
