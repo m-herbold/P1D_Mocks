@@ -2,18 +2,18 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import integrate
-from scipy.optimize import curve_fit
-from scipy.stats import binned_statistic
-from scipy.interpolate import InterpolatedUnivariateSpline
-from pathlib import Path
 import pandas as pd
-
 import argparse
-import os
-import time
-from datetime import datetime
 import random
+import time
+import os
+
+from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.stats import binned_statistic
+from scipy.optimize import curve_fit
+from datetime import datetime
+from scipy import integrate
+from pathlib import Path
 
 
 #######################################
@@ -74,17 +74,15 @@ sigma2_fid = 1.50381
 
 def read_data(filename, expect_two_columns=False):
     """
-    Reads data from a .txt or .fits file and returns a 1D or 2D array.
+    Reads data from a .txt file and returns as array(s).
 
     Args:
-        filename (str): Name of the input file. Supported formats: .txt, .fits.
-        expect_two_columns (bool): If True, ensures the data has exactly two
-                                    columns and returns them as separate arrays.
+        filename (str): Path to input file. Supported format: .txt.
+        expect_two_columns (bool): If True, expects exactly two columns in the file.
 
-    Returns:python
-        np.ndarray: A 1D array if `expect_two_columns` is False.
-        tuple[np.ndarray, np.ndarray]: Two 1D arrays (columns) if
-        `expect_two_columns` is True.
+    Returns:
+        np.ndarray: 1D array if expect_two_columns=False.
+        tuple[np.ndarray, np.ndarray]: Two 1D arrays if expect_two_columns=True.
 
     Raises:
         ValueError: If an unsupported file format is provided.
@@ -119,9 +117,9 @@ def read_data(filename, expect_two_columns=False):
 def parse_redshift_target(input_value):
     """
     Parses the redshift target argument, allowing:
-    - A single float value (e.g., "2.0").
-    - A comma-separated list of redshift values (e.g., "2.0,2.2,2.4").
-    - A file containing redshift values (.txt)
+        - A single float value (e.g., "2.0").
+        - A comma-separated list of redshift values (e.g., "2.0,2.2,2.4").
+        - A file containing redshift values (.txt)
 
     Args:
         input_value (str): file path, single value, or comma-separated
@@ -161,14 +159,17 @@ def parse_redshift_target(input_value):
 
 def process_power_file(safe_z, user_path=None):
     """
-    Loads and processes Gaussian power file into k and P(k) arrays for later use.
+    Loads Gaussian power spectrum file for given redshift.
 
     Args:
-        safe_z (str): Redshift label with dots replaced by dashes.
-        user_path (str or Path, optional): Optional user-specified file path.
+        safe_z (str): Redshift label with '.' replaced by '-'.
+        user_path (str or Path, optional): Custom path for power file.
 
     Returns:
-        tuple: (k_array, power_array)
+        tuple[np.ndarray, np.ndarray]: Arrays of k and power P(k).
+
+    Raises:
+        RuntimeError: If file is not found or cannot be loaded.
     """
     try:
         if user_path:
@@ -176,6 +177,7 @@ def process_power_file(safe_z, user_path=None):
         else:
             base_dir = os.path.dirname(__file__)
             p1d_dir = os.path.join(base_dir, '..', 'P_G')
+            # power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
             power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
 
         if not power_path.exists():
@@ -195,14 +197,17 @@ def process_power_file(safe_z, user_path=None):
 def parse_fitting_params(input_str=None, default=(tau0_fid, tau1_fid,
                                                   nu_fid, sigma2_fid)):
     """
-    Parses lognormal parameters from a comma-separated string or a file.
+    Parses lognormal fitting parameters from string or file, or returns defaults.
 
     Args:
-        input_str (str, optional): Input string (comma list or path to .txt file).
-        default (tuple): Default values (tau0, tau1, nu, sigma2).
+        input_str (str, optional): Comma-separated string or filename with 4 parameters.
+        default (tuple): Default (tau0, tau1, nu, sigma2) parameters.
 
     Returns:
-        tuple: Parsed (tau0, tau1, nu, sigma2)
+        tuple: Parsed parameters (tau0, tau1, nu, sigma2).
+
+    Raises:
+        ValueError: If parsing fails or incorrect number of parameters.
     """
     if input_str is None:
         return default
@@ -230,15 +235,14 @@ def parse_fitting_params(input_str=None, default=(tau0_fid, tau1_fid,
 
 def lambda_c(z, lambda0=lambda_0):
     """
-    Computes the central rest-frame wavelength at a given redshift.
+    Computes redshifted central wavelength.
 
     Args:
-        z (float or np.ndarray): Redshift value(s).
-        lambda0 (float, optional): Rest-frame reference wavelength
-                                (default: lambda_0).
+        z (float or np.ndarray): Redshift(s).
+        lambda0 (float): Rest-frame wavelength (default: 1216 Å).
 
     Returns:
-        float or np.ndarray: Redshifted central wavelength(s).
+        float or np.ndarray: Redshifted wavelength(s).
     """
     lambda_c = (1 + int(z)) * lambda0
     return lambda_c
@@ -247,20 +251,17 @@ def lambda_c(z, lambda0=lambda_0):
 def generate_wavelength_grid(velocity_grid, z, lambda_min=lambda_min,
                              lambda_max=lambda_max, lambda0=lambda_0):
     """
-    Converts a velocity grid to a wavelength grid at a given redshift.
+    Converts velocity grid to observed-frame wavelength grid at redshift z.
 
     Args:
-        velocity_grid (np.ndarray): Grid of velocities (km/s).
+        velocity_grid (np.ndarray): Velocity grid (km/s).
         z (float): Target redshift.
-        lambda_min (float, optional): Minimum observed-frame wavelength
-                                    (default: 3600 Å).
-        lambda_max (float, optional): Maximum observed-frame wavelength
-                                    (default: 9800 Å).
-        lambda0 (float, optional): Rest-frame reference wavelength
-                                    (default: lambda_0).
+        lambda_min (float): Minimum wavelength (Å).
+        lambda_max (float): Maximum wavelength (Å).
+        lambda0 (float): Rest-frame reference wavelength (Å).
 
     Returns:
-        np.ndarray: Corresponding wavelength grid (in Å).
+        np.ndarray: Wavelength grid (Å).
     """
     wavelength_field = lambda_c(z) * np.exp(velocity_grid / c)
     return wavelength_field
@@ -289,16 +290,17 @@ def delta_transform_1d(file_k_array, file_power_array,
     Transforms a Gaussian white noise field in k-space to a correlated
     Gaussian field in velocity-space, using an imported power spectrum.
 
-    Parameters:
-    - file_k_array: array of k values from the baseline power spectrum file [s/km]
-    - file_power_array: array of P(k) values (baseline power)
-    - gaussian_random_field_k: white noise field in rfft space
-    - dv: spacing of the velocity grid [km/s]
+    Args:
+        file_k_array (np.ndarray): Baseline k values [1/km].
+        file_power_array (np.ndarray): Baseline P(k).
+        gaussian_random_field_k (np.ndarray): White noise field in Fourier space.
+        dv (float): Velocity spacing [km/s].
 
     Returns:
-    - delta_b_tilde: scaled k-space field
-    - delta_b: real-space Gaussian field
-    - P_k: interpolated and used power spectrum
+        tuple:
+            delta_b_tilde (np.ndarray): Scaled k-space field.
+            delta_b (np.ndarray): Real-space correlated Gaussian field.
+            P_k (np.ndarray): Interpolated power spectrum used.
     """
     N_rfft = gaussian_random_field_k.shape[0]
     N = 2 * (N_rfft - 1)  # real-space size
@@ -315,9 +317,11 @@ def delta_transform_1d(file_k_array, file_power_array,
 
     # Scale the white noise in k-space
     delta_b_tilde = gaussian_random_field_k * np.sqrt(P_k / dv)
+    # delta_b_tilde = gaussian_random_field_k * np.sqrt(P_k)
 
     # Inverse FFT to get real-space correlated Gaussian field
     delta_b = np.fft.irfft(delta_b_tilde, n=N) / dv
+    # delta_b = np.fft.irfft(delta_b_tilde, n=N) / (N * dv)
 
     return delta_b_tilde, delta_b, P_k
 
@@ -443,7 +447,7 @@ def prefactor(variance):
         variance (float): Variance of the Gaussian field.
 
     Returns:
-        float: Normalization factor for the integrand.
+        float: Normalization factor for the quadrature integral.
     """
     prefactor = 1 / (np.sqrt(variance) * np.sqrt(2 * np.pi))
     return (prefactor)
@@ -453,45 +457,37 @@ def prefactor(variance):
 def xz(z, sigma2=sigma2_fid, tau0=tau0_fid, tau1=tau1_fid,
        nu=nu_fid, z0=PD13_PIVOT_Z):
     """
-    Modifies optical depth for flux calculations by incorporating z-dependence.
+    Computes the redshift-dependent optical depth factor for GHQ integration.
 
     Args:
-        zp (float or np.ndarray): Redshift(s) at which to evaluate.
-        tau0 (float): The normalization factor for optical depth.
-        tau1 (float): Exponent controlling redshift evolution of optical depth.
-        nu (float): Exponent controlling redshift evolution of lognormal transform.
-        sigma2 (float): Variance of the Gaussian field.
-        z0 (float, optional): Pivot redshift for normalization
-            (default: PD13_PIVOT_Z).
+        z (float or np.ndarray): Redshift(s).
+        sigma2 (float): Gaussian field variance.
+        tau0 (float): Optical depth normalization.
+        tau1 (float): Optical depth redshift evolution exponent.
+        nu (float): Redshift exponent for the lognormal transform.
+        z0 (float, optional): Pivot redshift (default: PD13_PIVOT_Z).
 
     Returns:
-        float or np.ndarray: The computed x(z) factor for modifying the flux.
+        float or np.ndarray: x(z) used in mean flux calculations.
     """
     return t_of_z(z, tau0, tau1, z0) * np.exp(-a2_z(z, nu, z0) * sigma2)
 
 
-# used for GHQ mean flux
+# used for GHQ mean flux -> pass field variance, not fitting param
 def mean_flux(z, variance, z0=PD13_PIVOT_Z):
     """
-    Compute the mean flux using Gaussian-Hermite quadrature integration.
+    Computes the mean transmitted flux ⟨F⟩ using Gaussian-Hermite quadrature.
 
-    Parameters:
-        z (float): Redshift at which to evaluate the mean flux.
-        variance (float): Variance of the underlying Gaussian field.
-        tau0 (float, optional): Normalization factor for optical depth
-                                (default: 0.67377).
-        tau1 (float, optional): Exponent controlling redshift evolution of
-                                optical depth (default: 5.31008).
-        nu (float, optional): Exponent for redshift evolution in the lognormal
-                                transform (default: 2.16175).
-        z0 (float, optional): Pivot redshift for normalization
-                                (default: PD13_PIVOT_Z).
+    Args:
+        z (float): Redshift.
+        variance (float): Variance of the Gaussian field.
+        z0 (float, optional): Pivot redshift (default: PD13_PIVOT_Z).
 
     Returns:
-        float: The mean transmitted flux ⟨F⟩ at the given redshift.
+        float: Mean transmitted flux ⟨F⟩.
     """
     def integrand(x): return np.exp((-(x**2) / (2 * variance)) -
-                                    ((xz(z, variance)) * np.exp(2 * (a_z(z)) * x)))
+                                    ((xz(z)) * np.exp(2 * (a_z(z)) * x)))
     integral = integrate.quad(integrand, -np.inf, np.inf)[0]
     value = prefactor(variance) * integral
     return (value)
@@ -515,12 +511,18 @@ def turner24_mf(z):
 
 def export_transmission(z_safe, v_array, f_array):
     """
-    Exports velocity and flux arrays to a transmission file with a unique ID.
+    Exports velocity and flux arrays to a uniquely named transmission file.
 
     Args:
-        z_safe (str): Redshift label with dots replaced by dashes.
-        v_array (np.ndarray): Velocity array.
-        f_array (np.ndarray): Flux (transmission) array.
+        z_safe (str): Redshift string with periods replaced by dashes.
+        v_array (np.ndarray): Velocity array [km/s].
+        f_array (np.ndarray): Transmitted flux array.
+
+    Returns:
+        str: Path to the directory where the file was saved.
+
+    Raises:
+        OSError: If the directory cannot be created or written to.
     """
     # Build export path
     base_dir = os.path.dirname(__file__)
@@ -546,25 +548,19 @@ def export_transmission(z_safe, v_array, f_array):
 
 def delta_F(z, variance, input_flux, z0=PD13_PIVOT_Z):
     """
-    Compute the fractional flux fluctuation field δ_F = (F - ⟨F⟩) / ⟨F⟩.
+    Computes fractional flux fluctuations: δ_F = (F - ⟨F⟩) / ⟨F⟩.
 
-    Parameters:
-        z (float): Redshift at which the mean flux is evaluated.
-        variance (float): Variance of the underlying Gaussian field.
+    Args:
+        z (float): Redshift.
+        variance (float): Variance of the Gaussian field.
         input_flux (np.ndarray): Array of transmitted flux values.
-        tau0 (float, optional): Normalization factor for optical depth
-                                (default: 0.67377).
-        tau1 (float, optional): Exponent controlling redshift evolution of
-                                optical depth (default: 5.31008).
-        nu )(float, optional): Exponent for redshift evolution in the lognormal
-                                transform (default: 2.16175).
-        z0 (float, optional): Pivot redshift for normalization
-                                (default: PD13_PIVOT_Z).
+        z0 (float, optional): Pivot redshift (default: PD13_PIVOT_Z).
 
     Returns:
-        np.ndarray: Fractional flux fluctuations δ_F.
+        np.ndarray: δ_F fluctuations.
     """
-    f_bar = input_flux.mean()
+    f_bar = mean_flux(z, variance, z0)
+
     flux = input_flux
     delta_f = (flux - f_bar) / (f_bar)
     return (delta_f)
@@ -572,15 +568,14 @@ def delta_F(z, variance, input_flux, z0=PD13_PIVOT_Z):
 
 def P_F(delta_f, dv):
     """
-    Compute the 1D power spectrum of fractional flux fluctuations.
+    Computes the 1D power spectrum P_F(k) of fractional flux fluctuations.
 
-    Parameters:
-        delta_f (np.ndarray): Array of fractional flux fluctuations δ_F.
-        dv (float): Velocity spacing between pixels [km/s].
+    Args:
+        delta_f (np.ndarray): Fractional flux fluctuations δ_F.
+        dv (float): Pixel velocity spacing [km/s].
 
     Returns:
-        np.ndarray: 1D power spectrum P_F(k) evaluated at Fourier modes
-                    corresponding to delta_f.
+        np.ndarray: Power spectrum P_F(k).
     """
     L = delta_f.size * dv
     delta_f_tilde = np.fft.rfft(delta_f) * dv
@@ -643,6 +638,9 @@ def fit_PD13Lorentz(delta_f, dv, z):
         B (float): Power-law index for redshift evolution.
         beta (float): Logarithmic correction for redshift evolution.
         lmd (float): Lorentzian damping factor.
+
+    Raises:
+        RuntimeError: If `curve_fit` fails to converge.
     """
     power = P_F(delta_f, dv)
     N = len(delta_f)
@@ -654,8 +652,9 @@ def fit_PD13Lorentz(delta_f, dv, z):
                                                        statistic='mean',
                                                        bins=bins)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    window = (bin_centers > 0) & (bin_centers < 1.0)
 
+    # window = (bin_centers > 1e-5) & (bin_centers < 0.10)
+    window = (bin_centers > 0) & (bin_centers < 1.0)
     # Remove invalid points
     valid = np.isfinite(statistic) & np.isfinite(bin_centers)
     bin_centers = bin_centers[valid]
@@ -664,15 +663,33 @@ def fit_PD13Lorentz(delta_f, dv, z):
     # Initial guess
     p0 = (0.07, -2.5, -0.1, 3.5, 0.3, 700)
 
+    # Now safe to call curve_fit
     popt_mock, pcov_mock = curve_fit(
         lambda k, A, n, alpha, B, beta, lmd: evaluatePD13Lorentz(
             (k, z), A, n, alpha, B, beta, lmd),
         bin_centers, statistic, p0=p0, maxfev=20000)
 
     return bin_centers[window], statistic[window], *popt_mock
+    # return bin_centers, statistic, *popt_mock
 
 
 def process_EDR_DATA(z_target):
+    """
+    Loads and processes EDR QMLE power spectrum data for a given redshift.
+
+    Args:
+        z_target (float): Target redshift to filter from the EDR data file.
+
+    Returns:
+        tuple:
+            - kc (np.ndarray): Center of k-bins.
+            - Pk (np.ndarray): Recovered power spectrum.
+            - Pk_err (np.ndarray): Associated uncertainties.
+
+    Raises:
+        FileNotFoundError: If the data file is missing.
+        ValueError: If data format is invalid.
+    """
     current_path = Path(__file__).resolve().parent
     edr_data_path = current_path.parent / 'Examples' / \
         'figure8_qmle_desiedrp_results.txt'
@@ -693,51 +710,106 @@ def process_EDR_DATA(z_target):
     return subset['kc'], subset['Pk'], subset['Pk_err']
 
 
+def get_k_range_desi2025(z):
+    """
+    Return kmin and kmax (s/km) for DESI DR1 resolution at redshift z.
+
+    Args:
+        z (float): Redshift.
+
+    Returns:
+        tuple:
+            - k_min (float): Minimum k [s/km].
+            - k_max (float): Maximum k [s/km].
+    """
+    c = 299792.458        # km/s
+    delta_lambda = 0.8    # Angstrom (DESI)
+    lambda_lya = 1215.67  # Angstrom
+    R_z = (c * delta_lambda) / ((1 + z) * lambda_lya)
+    k_max = 0.5 * np.pi / R_z  # s/km
+    k_min = 0.001              # s/km, fixed by continuum limit
+    return k_min, k_max
+
+
+def compute_rms_error(measurement, target, mask=None):
+    """
+    Computes the root-mean-square (RMS) fractional error between measurement and target.
+
+    Args:
+        measurement (np.ndarray): Measured values.
+        target (np.ndarray): Target or true values.
+        mask (np.ndarray, optional): Boolean mask to apply before computation.
+
+    Returns:
+        float: RMS fractional error.
+    """
+    if mask is not None:
+        measurement = measurement[mask]
+        target = target[mask]
+    frac_diff = (measurement - target) / target
+    return np.sqrt(np.mean(frac_diff**2))
+
+
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
                        N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
     """
-    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally
-    plot comparisons.
+    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally plot it.
 
-    This function fits the PD13 Lorentzian model to a measured 1D power spectrum
-    either at a single redshift or across multiple redshifts. In "single-redshift mode"
-    (`all_z='n'`), it returns fit results and optionally plots the comparison between
-    the measured power spectrum, best-fit model, and the DESI EDR reference model.
-    In "multi-redshift mode" (`all_z='y'`), it fits and plots all redshifts together,
-    but does not return fit results.
+    Two operation modes:
+    - **Single-redshift mode (`all_z='n'`)**: Fits the power spectrum at a single redshift
+      using `delta_f` and `dv`, and optionally plots comparison against reference models.
+    - **Multi-redshift mode (`all_z='y'`)**: Fits and plots the power spectra across all
+      redshifts in `z_target`, but does not return fit results.
 
-    Parameters:
-        delta_f (np.ndarray, optional): Normalized flux fluctuations for a single spectrum.
-        z (float, optional): Redshift corresponding to `delta_f`.
-        dv (float, optional): Velocity spacing [km/s] for the single-redshift spectrum.
-        dv_array (list or np.ndarray, optional): List of velocity spacings for each
-                                                redshift (used when `all_z='y'`).
-        safe_z (str, optional): String-formatted redshift for use in filenames.
-        N_mocks (int, optional): Number of mocks used in computing `delta_f`
-                                (for plot labels).
-        z_target (np.ndarray): Array of target redshifts for model evaluation.
-        k_arrays (list of np.ndarray, optional): List of k-arrays for each
-                                                redshift (used when `all_z='y'`).
-        power_arrays (list of np.ndarray, optional): List of power spectra corresponding
-                                                to `k_arrays` (currently unused).
-        delta_f_array (list of np.ndarray, optional): List of flux fluctuation arrays
-                                                at each redshift (used when `all_z='y'`).
-        all_z ({'y', 'n'}, default 'n'): If 'y', evaluate and plot all redshifts together;
-                                        if 'n', fit a single redshift.
-        plot ({'y', 'n'}, default 'y'): If 'y', generate plots of the measured, fit,
-                                        and DESI EDR models.
+    Parameters
+    ----------
+        all_z : {'y', 'n'}, default 'n'
+            Whether to operate in multi-redshift mode.
+        plot : {'y', 'n'}, default 'y'
+            Whether to generate plots.
+
+      --- Used in single-redshift mode ('all_z'='n') ---
+        delta_f : np.ndarray, optional
+            Normalized flux fluctuations for a single mock spectrum.
+        z : float, optional
+            Redshift of the spectrum.
+        dv : float, optional
+            Velocity spacing [km/s].
+        safe_z : str, optional
+            Safe version of redshift string for filenames.
+        N_mocks : int, optional
+            Number of mocks used (for legend labels).
+
+      --- Used in multi-redshift mode ('all_z'='y') ---
+        dv_array : list of float, optional
+            List of dv values for each redshift.
+        delta_f_array : list of np.ndarray, optional
+            List of flux fluctuation arrays.
+        z_target : list or np.ndarray, optional
+            Redshift values to process.
+        k_arrays : list of np.ndarray, optional
+            List of k values per redshift (currently unused).
+        power_arrays : list of np.ndarray, optional
+            Power spectra per redshift (currently unused).
 
     Returns
     -------
-    bin_centers : np.ndarray
-        Binned k-values used for fitting (only if `all_z='n'`).
-    statistic : np.ndarray
-        Binned power spectrum values (only if `all_z='n'`).
-    popt : tuple
-        Best-fit parameters for the PD13 Lorentzian model
-        (only if `all_z='n'`).
+        bin_centers : np.ndarray
+            k-bin centers used for the fit (only if `all_z='n'`).
+        statistic : np.ndarray
+            Measured power spectrum in each bin (only if `all_z='n'`).
+        popt : tuple
+            Best-fit parameters from PD13 model (only if `all_z='n'`).
+
+    Saves
+    -----
+    Power_measured.png :
+        Power spectrum plot for all redshifts (if `all_z='y'` and `plot='y'`).
+    <safe_z>_power_fit.png :
+        Fit vs. data plot for a single redshift (if `all_z='n'` and `plot='y'`).
     """
+
     if all_z == 'y' and plot == 'y':
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
                                        sharex=True,
@@ -796,7 +868,10 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         delta_f = delta_f
 
         bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
-        w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
+        # generic extended k-mask
+        # w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
+        # generic condensed mask
+        w_k = (bin_centers > 1e-4) & (bin_centers < 0.05)
 
         edr_k, edr_p, edr_err = process_EDR_DATA(z)
 
@@ -820,7 +895,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                                            constrained_layout=True)
 
             ax1.loglog(bin_centers[w_k], stat[w_k], color='tab:orange',
-                       alpha=0.5, label=f'Mock Measured (N = {N_mocks})')
+                       alpha=0.5, label=f'This Work (N = {N_mocks})')
             ax1.loglog(bin_centers[w_k], desi_model[w_k], ls='--',
                        color='tab:blue', label=r'DESI EDR Fit (PD13)')
             ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o', label='DESI EDR',
@@ -830,19 +905,87 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             ax1.grid(True)
 
             ax2.semilogx(bin_centers[w_k], percent_diff_mock_measure[w_k],
-                         alpha=0.5, color='darkorange', label='Mock Measure')
+                         alpha=0.5, color='darkorange')  # , label='Mock Measure')
             ax2.axhline(0, ls='--', color='gray')
             ax2.grid(True)
-            ax2.legend(loc='upper left')
+            # ax2.legend(loc='upper left')
             ax2.set_ylabel('% Difference')
             ax2.set_xlabel(r'k $[km/s]^{-1}$')
 
+            # ax3.semilogx(bin_centers, percent_diff_naim_fit,
+            #              color='black', label='Karacayli et al., 2020')
+            # ax3.axhline(0, ls='--', color='gray')
+            # ax3.set_xlabel(r'k $[km/s]^{-1}$')
+            # ax3.grid(True)
+            # fig.text(0.02, 0.25, "% Difference", va='center',
+            #          rotation='vertical', fontsize=16)
+            # ax3.set_ylabel("")
+
             plt.legend()
             plt.tight_layout()
-            fig.text(0.01, -0.02,
-                     f"Max  % diff: {np.abs(percent_diff_mock_measure[w_k]).max():.2f}%\n"
-                     f"Mean % diff: {percent_diff_mock_measure[w_k].mean():.2f}%",
-                     fontsize=9, ha='left', va='top')
+
+            # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
+            wk_2020 = (bin_centers > 0.0005) & (
+                bin_centers < 0.112)  # DESI Lite
+            dynamic_k_min, dynamic_k_max = get_k_range_desi2025(z)
+            wk_2023 = (bin_centers > 0.000750) & (
+                bin_centers < 0.035)  # EDR
+            wk_2025 = (bin_centers > dynamic_k_min) & (
+                bin_centers < dynamic_k_max)  # DR1
+            wk_extended = (bin_centers > 1e-5) & (bin_centers <
+                                                  0.1)  # for robustness
+            wk_custom = (bin_centers > 1e-5) & (bin_centers <
+                                                0.05)  # for display
+
+            fig.text(
+                0.01, -0.02,
+                f"""
+                    wk_2020: 0.0005 < k < 0.112  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2020):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2020].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2020]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2020):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2020].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2020]).max():.2f}%
+
+
+                    wk_2023: {0.000750} < k < {0.035}  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2023):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2023].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2023]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2023):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2023].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2023]).max():.2f}%
+
+
+                    wk_2025: {dynamic_k_min:.4f} < k < {dynamic_k_max:.4f}  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_2025):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_2025].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_2025]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_2025):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_2025].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_2025]).max():.2f}%
+
+
+                    wk_extended: {1e-5} < k < {0.10}  [s/km]
+
+                    MH RMS:           {compute_rms_error(stat, desi_model, wk_extended):.4f}
+                    MH Mean % diff:   {percent_diff_mock_measure[wk_extended].mean():.2f}%
+                    MH Max  % diff:   {np.abs(percent_diff_mock_measure[wk_extended]).max():.2f}%
+
+                    NK20 RMS:         {compute_rms_error(naim_2020_fit, desi_model, wk_extended):.4f}
+                    NK20 Mean % diff: {percent_diff_naim_fit[wk_extended].mean():.2f}%
+                    NK20 Max % diff:  {np.abs(percent_diff_naim_fit[wk_extended]).max():.2f}%
+
+                    """,
+                fontsize=9, ha='left', va='top'
+            )
 
             print(f'Saving: {safe_z}_power_fit.png')
             plt.savefig(f'{safe_z}_power_fit.png')
@@ -858,16 +1001,23 @@ def plot_gaussian_field(z, field, space='v', sliced='y'):
     """
     Plots a 1D Gaussian random field in velocity or Fourier (k) space.
 
-    Args:
-        z (float or str): Redshift label for filename.
-        field (np.ndarray): The field to plot (velocity or k-space).
-        space (str, optional): Plotting mode - 'v' for velocity space or
-                                            'k' for k-space (default: 'v').
-        sliced (str, optional): Whether to slice the data ('y' or 'n').
-                                Default 'y'.
+    Parameters
+    ----------
+        z : float or str
+            Redshift label used in the filename.
+        field : np.ndarray
+            The field to plot (velocity or k-space).
+        space : {'v', 'k'}, optional
+            Plotting mode: 'v' for velocity space, 'k' for k-space.
+            Default is 'v'.
+        sliced : {'y', 'n'}, optional
+            Whether to slice the field using global `min_slice` and `max_slice`.
+            Default is 'y'.
 
-    Saves:
-        A PNG image of the plotted field named `{z}_Gaussian_Field_{space}.png`.
+    Saves
+    -----
+        {z}_Gaussian_Field_{space}.png :
+            A PNG image of the plotted field.
     """
     space = space.lower()
     if space == 'v':
@@ -907,7 +1057,7 @@ def plot_gaussian_power(z, kmodes, field):
         field (np.ndarray): The field to plot (in k-space).
 
     Saves:
-        A PNG image of the plotted field named `{z}_gaussian_power.png`.
+        {z}__gaussian_power.png: Log-log plot of the Gaussian power spectrum.
     """
 
     filename = f'{z}__gaussian_power.png'
@@ -922,24 +1072,28 @@ def plot_gaussian_power(z, kmodes, field):
 
 def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
     """
-    Plots the delta field in velocity, kmode, or redshift space.
+    Plots the δ_b field in velocity space, k-space, or redshift-labeled space.
 
-    Args:
-        z (float or str): Redshift label for filename.
-        kmodes (np.ndarray): x-axis values for k-space.
-        velocity_grid (np.ndarray): x-axis values for velocity space.
-        field (np.ndarray): The field to plot.
-        space (str, optional): Plotting mode - 'k' for kmodes, 'v' for velocity
-                                            space, or 'z' for redshifted velocity
-                                            space (default: 'v').
-        sliced (str, optional): Whether to slice the data ('y' or 'n').
-                                Default 'y'.
-        min_slice (int, optional): Start index for slicing. Default is 0.
-        max_slice (int, optional): End index for slicing. Default is None
-                                                        (to end of array).
+    Parameters
+    ----------
+        z : float or str
+            Redshift label used for filename and labels.
+        kmodes : np.ndarray
+            x-axis for k-space plotting.
+        velocity_grid : np.ndarray
+            x-axis for velocity-space plotting.
+        field : np.ndarray
+            The field to plot.
+        space : {'k', 'v', 'z'}, optional
+            Coordinate space for plotting. Default is 'v'.
+        sliced : {'y', 'n'}, optional
+            Whether to slice the field and x-axis using `min_slice`
+            and `max_slice` globals.
 
-    Saves:
-        A PNG image of the plotted field named `{z}_delta_field_{space}.png`.
+    Saves
+    -----
+        {z}_delta_field_{space}.png :
+            A PNG image of the plotted δ_b field.
     """
     space = space.lower()
     if space == 'k':
@@ -991,7 +1145,7 @@ def plot_nz(z, field, sliced='y'):
                                 Default 'y'.
 
     Saves:
-        A PNG image of the plotted field named `{z}_nz_field.png`.
+        {z}_nz_field.png: Plot of the lognormal field n(z).
     """
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
@@ -1016,7 +1170,7 @@ def plot_optical_depth(z, field, sliced='y'):
                                 Default 'y'.
 
     Saves:
-        A PNG image of the plotted field named `{z}_optical_depth.png`.
+        {z}_optical_depth.png: Plot of the optical depth τ(z).
     """
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
@@ -1035,18 +1189,35 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     """
     Plots the transmission field in velocity or wavelength space.
 
-    Args:
-        z (float or str): Redshift label for filename.
-        field (np.ndarray): The field to plot (transmitted fluc).
-        v_or_w (str, optional): Plotting mode - 'v' for velocity space or 'w'
-                                                for wavelength space
-                                                (default: 'v').
-        sliced (str, optional): Whether to slice the data ('y' or 'n').
-                                Default 'y'.
+    Parameters
+    ----------
+        z : float or str
+            Redshift of the transmission field.
+        safe_z : str
+            File-safe version of z for saving.
+        velocity_grid : np.ndarray
+            Velocity grid for computing wavelength grid if space='w'.
+        field : np.ndarray
+            Transmission field to plot.
+        variance : float
+            Variance for computing mean flux.
+        tau0 : float
+            Optical depth parameter.
+        tau1 : float
+            Optical depth redshift scaling.
+        nu : float
+            Redshift evolution index.
+        space : {'v', 'w'}, optional
+            'v' for velocity space or 'w' for wavelength space.
+            Default is 'v'.
+        sliced : {'y', 'n'}, optional
+            Whether to slice the field and x-axis using `min_slice`,
+            `max_slice`.
 
-    Saves:
-        A PNG image of the plotted field named
-        `{z}_transmission_field_{space}.png`.
+    Saves
+    -----
+    {safe_z}_transmission_field_{space}.png :
+        A PNG image of the transmission field with mean flux line.
     """
     space = space.lower()
     if space == 'v':
@@ -1065,6 +1236,7 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     else:
         raise ValueError("Invalid space argument. Use 'v' or 'z'.")
 
+    # mean_flux = mean_flux(z, variance, tau0, tau1, nu)
     mean_f = data.mean()
 
     if sliced.lower() == 'y':
@@ -1089,14 +1261,13 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
 
 def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     """
-    Plot measured mean flux and Turner et al. (2024) model with residuals.
+    Plot measured mean flux against the Turner et al. (2024) model with percent residuals.
 
     Parameters:
-    - z_target (array): Redshift values for measured mean flux.
-    - mean_flux_array (array): Measured mean flux values.
-    - model_z (array): Redshift values for model curve.
-    - model_flux_array (array): Model mean flux values.
-    - safe_z (str): Label used for file naming.
+    - z_target (array-like): Redshift values for the measured mean flux.
+    - mean_flux_array (array-like): Measured mean flux values.
+    - model_z (array-like): Redshift values for the model curve.
+    - model_flux_array (array-like): Model mean flux values.
     """
     # Interpolate model to z_target for residuals
     interp_model_at_target = np.interp(z_target, model_z, model_flux_array)
@@ -1125,13 +1296,54 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     ax2.set_ylabel('% Difference')
     ax2.grid()
 
+    # Format the mean flux measurements as strings
+    flux_text = "\n".join(
+        [f"z = {z:.2f},   F(z) = {f:.3f}" for z,
+         f in zip(z_target, mean_flux_array)]
+    )
+
+    # Add the text to the bottom of the figure
+    fig.text(
+        0.01, -0.02,
+        f"Mean Flux Measurements:\n{flux_text}",
+        fontsize=9, ha='left', va='top'
+    )
+
     # Save figure
     print('Saving: Mean_Flux_Measured.png')
     plt.savefig('Mean_Flux_Measured.png')
     plt.close()
 
 
+def format_redshift_for_filename(z):
+    return f"{z:.3f}".replace('.', '-')
+
+
 #######################################
+
+"""
+Main execution script for generating 1D lognormal mock Lyman-alpha forest spectra.
+
+Functionality:
+    - Reads target redshift values and optional Gaussian power spectra.
+    - Generates mock Gaussian fields and transforms them into flux transmission fields.
+    - Computes power spectra, optical depths, and mean flux.
+    - Optionally creates and saves diagnostic plots for each redshift.
+    - Aggregates and plots the measured vs. modeled mean flux.
+    - Aggregates and fits power spectra over all redshifts.
+
+Command-line Arguments:
+    --z_target [str]: Path to redshift file (.txt) or single float (required).
+    --power_files [str]: Comma-separated list of power spectrum files (optional).
+    --fit_params [str]: Comma-separated values or file for tau0, tau1, nu, sigma2.
+    --N_mocks [int]: Number of mocks per redshift (default: 1).
+    --plot_* [flags]: Optional flags to generate various diagnostic plots.
+
+Outputs:
+    - Transmission files for each mock.
+    - Power spectrum plots and fits.
+    - Comparison plot of measured vs. modeled mean flux.
+"""
 
 
 def main():
@@ -1207,7 +1419,7 @@ def main():
         time_1 = time.strftime("%H:%M:%S")
         print("Start Time:  ", time_1)
         start_time = time.time()
-        safe_z = str(z).replace('.', '-')
+        safe_z = format_redshift_for_filename(z)
 
         k_array, power_array = process_power_file(safe_z, power_file)
 
@@ -1236,7 +1448,7 @@ def main():
             f_z = f_of_z(x_z)
 
             # save value for mean flux for each transmission file at this z
-            temp_mean_flux.append(f_z.mean())  # mean flux of the field
+            temp_mean_flux.append(mean_flux(z, variance_1d_field, z0))
 
             delta_f = delta_F(z=z,
                               variance=variance_1d_field,
@@ -1244,7 +1456,7 @@ def main():
             delta_f_array.append(delta_f)
             measured_power = P_F(delta_f, dv)
 
-            # export transmission file
+            # export transmission file (velocity_grid is globally defined)
             filepath = export_transmission(safe_z, velocity_grid, f_z)
         print(f"Saved transmission file(s): {filepath}")
 
