@@ -2,6 +2,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+from matplotlib.ticker import FuncFormatter
 import pandas as pd
 import argparse
 import random
@@ -26,6 +28,12 @@ plt.rcParams['legend.fontsize'] = 14
 plt.rcParams['savefig.dpi'] = 150
 plt.rcParams['axes.labelsize'] = 16
 plt.rcParams['savefig.bbox'] = 'tight'
+
+# Colorblind friendly colors
+CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
+                  '#f781bf', '#a65628', '#984ea3',
+                  '#999999', '#e41a1c', '#dede00', 
+                  '#000000', '#FFFFFF']
 
 
 #######################################
@@ -178,7 +186,7 @@ def process_power_file(safe_z, user_path=None):
             base_dir = os.path.dirname(__file__)
             p1d_dir = os.path.join(base_dir, '..', 'P_G')
             # power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
-            power_path = Path(os.path.join(p1d_dir, f'testP_G-{safe_z}.txt'))
+            power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
 
         if not power_path.exists():
             raise FileNotFoundError(f"Could not find file: {power_path}")
@@ -849,8 +857,10 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         ax1.set_ylabel(r"$P_{\mathrm{1D}}(k)$")
         ax1.legend(ncol=3, fontsize='small', loc='lower left')
         ax1.grid(True, which='both', ls=':', alpha=0.6)
+        ax1.yaxis.set_major_formatter(ScalarFormatter())
+        ax1.ticklabel_format(style='plain', axis='y')
 
-        ax2.axhline(0, color='black', lw=1, ls='--')
+        ax2.axhline(0, color=CB_color_cycle[6], lw=1, ls='--')
         ax2.set_ylabel(r"% Difference")
         ax2.set_xlabel(r'k $[km/s]^{-1}$')
         ax2.grid(True, ls=':', alpha=0.6)
@@ -903,10 +913,15 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             ax1.set_ylabel(rf'$P(k)$   (z = {safe_z})')
             ax1.legend(loc='lower left')
             ax1.grid(True)
+            # ax1.yaxis.set_major_formatter(ScalarFormatter())
+            # ax1.ticklabel_format(style='plain', axis='y')
+            ax1.yaxis.set_major_formatter(
+            FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
+            )
 
             ax2.semilogx(bin_centers[w_k], percent_diff_mock_measure[w_k],
-                         alpha=0.5, color='darkorange')  # , label='Mock Measure')
-            ax2.axhline(0, ls='--', color='gray')
+                         color='black', alpha=0.7)  # , label='Mock Measure')
+            ax2.axhline(0, ls='--', color=CB_color_cycle[6])
             ax2.grid(True)
             # ax2.legend(loc='upper left')
             ax2.set_ylabel('% Difference')
@@ -914,14 +929,13 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             # ax3.semilogx(bin_centers, percent_diff_naim_fit,
             #              color='black', label='Karacayli et al., 2020')
-            # ax3.axhline(0, ls='--', color='gray')
+            # ax3.axhline(0, ls='--', color=CB_color_cycle[6])
             # ax3.set_xlabel(r'k $[km/s]^{-1}$')
             # ax3.grid(True)
             # fig.text(0.02, 0.25, "% Difference", va='center',
             #          rotation='vertical', fontsize=16)
             # ax3.set_ylabel("")
 
-            plt.legend()
             plt.tight_layout()
 
             # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
@@ -1249,9 +1263,9 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
         plt.plot(x_ax, data)
     else:
         plt.plot(data)
-    plt.axhline(y=0, color='black', ls='--')
-    plt.axhline(y=1, color='black', ls='--')
-    plt.axhline(y=mean_f, color='tab:red', ls='--',
+    plt.axhline(y=0, color=CB_color_cycle[6], ls='--')
+    plt.axhline(y=1, color=CB_color_cycle[6], ls='--')
+    plt.axhline(y=mean_f, color=CB_color_cycle[7], ls='--',
                 label=rf'$\overline{{F}}(z) = {mean_flux:.2f}$')
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -1281,17 +1295,22 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
 
     # Top panel: mean flux comparison
     ax1.plot(model_z, model_flux_array,
-             label='Turner et al., 2024', lw=6, alpha=0.5)
+             label='Turner et al., 2024', 
+             lw=3, alpha=0.5, color=CB_color_cycle[0])
     ax1.plot(z_target, mean_flux_array, label='Measured',
-             ls='--', color='black', marker='o')
-
+            linestyle='dotted', lw=2,
+            marker='o', markersize=6,
+            color=CB_color_cycle[1])
+    
     ax1.set_ylabel(r'$\bar F(z)$')
     ax1.legend(loc='lower left')
     ax1.grid()
 
     # Bottom panel: percent difference
-    ax2.axhline(0, color='black', lw=1, ls='--')
-    ax2.plot(z_target, residuals, marker='o', color='darkred')
+    ax2.axhline(0, color=CB_color_cycle[6], lw=1, ls='--')
+    ax2.plot(z_target, residuals, marker='o', 
+            color='black', alpha=0.7, lw=2, 
+            markersize=6, ls='dotted')
     ax2.set_xlabel('z')
     ax2.set_ylabel('% Difference')
     ax2.grid()
@@ -1316,7 +1335,7 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
 
 
 def format_redshift_for_filename(z):
-    return f"{z:.3f}".replace('.', '-')
+    return f"{z:.1f}".replace('.', '-')
 
 
 #######################################
