@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import argparse
 import time
@@ -25,9 +26,14 @@ plt.rcParams['savefig.dpi'] = 150
 plt.rcParams['axes.labelsize'] = 16
 plt.rcParams['savefig.bbox'] = 'tight'
 
+# Colorblind friendly colors
+CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
+                  '#f781bf', '#a65628', '#984ea3',
+                  '#999999', '#e41a1c', '#dede00', 
+                  '#000000', '#FFFFFF']
+
 
 #######################################
-
 
 DESI_EDR_PARAMETERS = (
     7.63089e-02, -2.52054e+00, -1.27968e-01,
@@ -54,15 +60,14 @@ default_numvpoints = 2**22
 
 default_dv = 1.0
 
-cutoff_v = 10.0     # for z >= 4.0
-# cutoff_v = 15.0   # for z < 4.0
+# cutoff_v = 10.0     # for z >= 4.0
+cutoff_v = 15.0   # for z < 4.0
 
 default_v_array = np.arange(default_numvpoints) * default_dv
 k_arr = 2. * np.pi * \
     np.fft.rfftfreq((2 * default_numvpoints)-1, d=default_dv) + 1e-12
 
 flux_fitting_z_array = np.linspace(1.8, 5.0, 500)
-
 
 #######################################
 
@@ -1124,11 +1129,11 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2,
                                    gridspec_kw={'height_ratios': [3, 1]},
                                    constrained_layout=True)
 
-    # Top panel: mean flux comparison
-    ax1.plot(z, target_flux, color='tab:blue',
-             lw=6, alpha=0.5, label=f'Model: {flux_model}')
-    ax1.plot(z, best_fit_flux, color='black',
-             ls='--', label='Fit')
+    ax1.plot(z, target_flux, color=CB_color_cycle[0],
+             lw=3, alpha=0.5, label=f'Model: {flux_model}')
+    ax1.plot(z, best_fit_flux, color=CB_color_cycle[1], 
+            linestyle=(0, (1, 3)), lw=5, label='Fit')
+    
     ax1.set_ylabel(r'$\bar F(z)$')
     ax1.legend(loc='lower left')
     ax1.grid()
@@ -1139,8 +1144,8 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2,
     #          fontsize=12, transform=ax1.transAxes)
 
     # Bottom panel: percent difference
-    ax2.axhline(0, color='black', lw=1, ls='--')
-    ax2.plot(z, percent_diff, color='darkred')
+    ax2.axhline(0, color=CB_color_cycle[6], ls='--')
+    ax2.plot(z, percent_diff, color='black', alpha=0.7)
     ax2.set_xlabel('z')
     ax2.set_ylabel('% Difference')
     ax2.grid()
@@ -1166,9 +1171,10 @@ def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
     print(rf'Saving: {z}_P1D_target.png')
     plt.figure()
 
-    plt.loglog(k_array_input, p1d_input, alpha=0.7,
+    plt.loglog(k_array_input, p1d_input, alpha=0.5, 
+               color=CB_color_cycle[0], lw=4,
                label=f'input P1D, z={z}, N={k_array_input.size}')
-    plt.loglog(k_array_fine[1:], p1d_fine[1:], color='tab:orange', ls='--',
+    plt.loglog(k_array_fine[1:], p1d_fine[1:], color='black', ls='--',
                label=f'interpolated, z={z}, N={k_array_fine.size}')
     plt.legend()
     plt.xlabel(r'k $[km/s]^{-1}$')
@@ -1197,16 +1203,17 @@ def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled,
     """
     print(rf'Saving: {z}_xi_F_target.png')
     plt.figure()
-    plt.semilogx(new_v_array[1:], xif_interp_fit[1:],
+    plt.semilogx(new_v_array[1:], xif_interp_fit[1:], 
+                 color=CB_color_cycle[0], alpha=0.5, lw=4,
                  label='interpolated, N =' + str(new_v_array.size))
     plt.semilogx(v_array_downsampled, xif_target_downsampled,
                  label='downsampled, N =' + str(v_array_downsampled.size),
-                 ls='--', marker='o')
+                 ls='--', marker='o', color='black', markerfacecolor=None)
     plt.xlabel('v [km/s]')
     plt.ylabel(r'$\xi_F$')
     plt.title(r'$\xi_F$ Target,  z = '+str(z))
-    plt.vlines(dv, 0, 0.20, color='black', ls='--',
-               label=f'dv = {dv:.2f} km/s')
+    plt.axvline(x=dv, color=CB_color_cycle[6], linestyle='--',
+                label=f"dv: {dv:.2f} km/s")
     plt.legend()
     plt.tight_layout()
 
@@ -1232,11 +1239,11 @@ def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
     """
     print(rf'Saving: {z}_xi_F_fit.png')
     plt.figure()
-    plt.semilogx(v_array_downsampled, xi_f_target, alpha=0.5,
-                 label=r'$\xi_F$ Target', color='tab:blue')
+    plt.semilogx(v_array_downsampled, xi_f_target,
+                 label=r'$\xi_F$ Target', color=CB_color_cycle[0])
     plt.semilogx(v_array_downsampled, xi_f_optimized,  marker='o',
-                 label=r"$\xi_F$ Fit", color="tab:orange", ls='--')
-    plt.axvline(x=dv, color='black', linestyle='--',
+                 label=r"$\xi_F$ Fit", color=CB_color_cycle[1], ls='--')
+    plt.axvline(x=dv, color=CB_color_cycle[6], linestyle='--',
                 label=f"dv: {dv:.2f} km/s")
     plt.legend()
     plt.xlabel('v [km/s]')
@@ -1253,8 +1260,8 @@ def plot_xif_fit(z, v_array_downsampled, xi_f_target, xi_f_optimized, dv):
     print(rf'Saving: {z}_xi_F_fit_residual.png')
     plt.figure()
     plt.semilogx(v_array_downsampled, dif_xi_f,
-                 label=f'z = {z}', color='tab:blue')
-    plt.axvline(x=dv, color='black', linestyle='--',
+                 label=f'z = {z}', color=CB_color_cycle[0])
+    plt.axvline(x=dv, color=CB_color_cycle[6], linestyle='--',
                 label=f"dv: {dv:.2f} km/s")
     plt.xlabel('v [km/s]')
     plt.ylabel(r'$\Delta \xi_F$')
@@ -1288,12 +1295,13 @@ def plot_xig_fit(z, v_array_downsampled, xi_g_optimized,
     plt.figure()
 
     plt.plot(v_array_downsampled, xi_g_optimized,
-             'o', label=r'$\xi_g$ Fit', color='tab:blue')
+             'o', label=r'$\xi_g$ Fit',
+             color=CB_color_cycle[0])
 
-    plt.plot(0, zero_point, 'ro', label=f'Fixed Point (0, {zero_point:.3f})')
+    plt.plot(0, zero_point, 'o', color='black', label=f'Fixed Point (0, {zero_point:.3f})')
 
     plt.plot(v_extrapolated, xi_g_extrapolated, '-',
-             label='CS Extrapolation', color='tab:orange')
+             label='CS Extrapolation', color=CB_color_cycle[1])
 
     plt.xscale('log')
     plt.xlabel('v [km/s]')
@@ -1331,14 +1339,14 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
     print(rf'Saving: {z}_xi_F_recovered.png')
     plt.figure()
     plt.semilogx(v_fine, xif_fine, label=f're-interp., N = {v_fine.size}',
-                 color='tab:green', lw=5, alpha=0.3)
+                 color=CB_color_cycle[2], lw=5, alpha=0.3)
     plt.semilogx(v_array_downsampled, xif_target_downsampled,
                  label=f'downsampled Target, N = {v_array_downsampled.size}',
-                 ls='-', marker='o', color='tab:blue')
+                 ls='-', marker='o', color=CB_color_cycle[0])
     plt.semilogx(v_extrapolated, xi_f_optimized_extrapolated,
                  label=r"$\xi_F$ Fit, N = "+str(v_extrapolated.size),
-                 color="tab:orange", ls='--')
-    plt.axvline(x=dv, color='black', linestyle='--', label=f"dv: {dv:.2f}")
+                 color=CB_color_cycle[1], ls='--')
+    plt.axvline(x=dv, color=CB_color_cycle[6], linestyle='--', label=f"dv: {dv:.2f}")
     plt.xlabel('v [km/s]')
     plt.ylabel(r'$\xi_F$')
     plt.legend()
@@ -1392,14 +1400,14 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
                                    gridspec_kw={'height_ratios': [4, 1]})
 
     # Top subplot: Power spectrum
-    # ax1.axvspan(0.05, 0.1, alpha=0.2, color='grey')
-    # ax1.loglog(k_array_input[w_k], naim_2020_fit, lw=2,
-    #            color='black', label='Karacayli et al. (2020)')
-    ax1.loglog(k_array_input[w_k], p1d_input[w_k].real, lw=5,
-               color='tab:blue', label='DESI EDR', alpha=0.7)
+    # ax1.axvspan(0.05, 0.1, alpha=0.2, color=CB_color_cycle[6])
+    ax1.loglog(k_array_input[w_k], naim_2020_fit, lw=2, ls=(0, (10, 4)),
+               color='black', label='Karacayli et al. (2020)')
+    ax1.loglog(k_array_input[w_k], p1d_input[w_k].real, lw=3,
+               color=CB_color_cycle[0], label='DESI EDR', alpha=0.5)
     ax1.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real,
-               color='tab:orange', ls='--', lw=2,
-               label=r'This Work')
+               color=CB_color_cycle[1], linestyle=(0, (1, 3)), 
+               lw=5, label=r'This Work')
 
     ymin_data = mirrored_fit_power[w_fit_k].real.min()
     ymax_data = mirrored_fit_power[w_fit_k].real.max()
@@ -1413,14 +1421,19 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     ax1.set_ylabel(rf'$P(k)$   (z = {z})')
     ax1.grid(True)
     ax1.legend(loc='lower left')
+    ax1.yaxis.set_major_formatter(ScalarFormatter())
+    ax1.ticklabel_format(style='plain', axis='y')
 
     # Bottom subplot: Percent residuals
-    ax2.semilogx(k_array_input, percent_diff, color='darkred')
-    ax2.axhline(0, color='black', linestyle='--', linewidth=1)
+    ax2.semilogx(k_array_input, percent_diff, color='black')
+    ax2.axhline(0, color=CB_color_cycle[6], linestyle='--', linewidth=1)
     ax2.grid(True)
+    ax2.set_ylabel("% Difference")
+    ax2.set_ylim(-1,1)
+
 
     # ax3.semilogx(k_array_input[w_k], percent_diff2, color='black')
-    # ax3.axhline(0, color='black', linestyle='--', linewidth=1)
+    # ax3.axhline(0, color=CB_color_cycle[6], linestyle='--', linewidth=1)
     # ax3.grid(True)
 
     # Compute dynamic y-axis range only for values within x_min and x_max
@@ -1428,21 +1441,21 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     mask = (k_array_input >= x_min) & (k_array_input <= 0.05)
     percent_diff_in_range = percent_diff[mask]
 
-    # Compute max abs percent difference in the plotting range
-    if np.any(~np.isnan(percent_diff_in_range)):
-        y_max = np.nanmax(np.abs(percent_diff_in_range))
-        buffer = 0.05 * y_max  # Add some padding
-        ax2.set_ylim(-y_max - buffer, y_max + buffer)
-    else:
-        ax2.set_ylim(-10, 10)  # Fallback in case of NaNs
+    # # Compute max abs percent difference in the plotting range
+    # if np.any(~np.isnan(percent_diff_in_range)):
+    #     y_max = np.nanmax(np.abs(percent_diff_in_range))
+    #     buffer = 0.05 * y_max  # Add some padding
+    #     ax2.set_ylim(-y_max - buffer, y_max + buffer)
+    # else:
+    #     ax2.set_ylim(-5, 150)  # Fallback in case of NaNs
 
     # ax3.set_xlabel(r'k $[km/s]^{-1}$')
     ax2.set_xlabel(r'k $[km/s]^{-1}$')
 
-    fig.text(0.04, 0.25, "% Difference", va='center',
-             rotation='vertical', fontsize=16)
+    # fig.text(0.04, 0.25, "% Difference", va='center',
+    #          rotation='vertical', fontsize=16)
     # ax3.set_ylabel("")  # remove individual y-labels to avoid overlap
-    ax2.set_ylabel("")  # remove individual y-labels to avoid overlap
+    # ax2.set_ylabel("")  # remove individual y-labels to avoid overlap
 
     ax1.set_xlim(x_min, x_max)
     ax2.set_xlim(x_min, x_max)
@@ -1537,7 +1550,8 @@ def main():
         xif_interp_fit = (np.fft.irfft(p1d_fine))[:interp_size] / dv
 
         # Downsample xi_F for fitting (logarithmic spacing)
-        downsample_size = 2**10
+        downsample_size = 2**10   # higher resolution
+        # downsample_size = 2**5   # lower resolution, for testing
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 
