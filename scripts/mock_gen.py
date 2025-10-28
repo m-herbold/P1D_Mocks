@@ -32,7 +32,7 @@ plt.rcParams['savefig.bbox'] = 'tight'
 # Colorblind friendly colors
 CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                   '#f781bf', '#a65628', '#984ea3',
-                  '#999999', '#e41a1c', '#dede00', 
+                  '#999999', '#e41a1c', '#dede00',
                   '#000000', '#FFFFFF']
 
 
@@ -760,7 +760,8 @@ def compute_rms_error(measurement, target, mask=None):
 
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
                        N_mocks=None, z_target=None, k_arrays=None,
-                       power_arrays=None, delta_f_array=None, all_z='n', plot='y'):
+                       power_arrays=None, delta_f_array=None,
+                       all_z='n', plot='y', output_dir='.'):
     """
     Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally plot it.
 
@@ -776,6 +777,8 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             Whether to operate in multi-redshift mode.
         plot : {'y', 'n'}, default 'y'
             Whether to generate plots.
+        output_dir : str, default '.'
+            Directory to save output plots. Created if it does not exist.
 
       --- Used in single-redshift mode ('all_z'='n') ---
         delta_f : np.ndarray, optional
@@ -817,6 +820,9 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
     <safe_z>_power_fit.png :
         Fit vs. data plot for a single redshift (if `all_z='n'` and `plot='y'`).
     """
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
     if all_z == 'y' and plot == 'y':
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
@@ -865,8 +871,10 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         ax2.set_xlabel(r'k $[km/s]^{-1}$')
         ax2.grid(True, ls=':', alpha=0.6)
 
-        print('Saving: Power_measured.png')
-        plt.savefig("Power_measured.png")
+        # Save to output directory
+        output_path = os.path.join(output_dir, "Power_measured.png")
+        print(f"Saving: {output_path}")
+        plt.savefig(output_path)
         plt.close()
 
     else:
@@ -916,7 +924,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             # ax1.yaxis.set_major_formatter(ScalarFormatter())
             # ax1.ticklabel_format(style='plain', axis='y')
             ax1.yaxis.set_major_formatter(
-            FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
+                FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
             )
 
             ax2.semilogx(bin_centers[w_k], percent_diff_mock_measure[w_k],
@@ -1001,8 +1009,11 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                 fontsize=9, ha='left', va='top'
             )
 
-            print(f'Saving: {safe_z}_power_fit.png')
-            plt.savefig(f'{safe_z}_power_fit.png')
+            # --- save plot to specified output directory ---
+            output_filename = f"{safe_z}_power_fit.png"
+            output_path = os.path.join(output_dir, output_filename)
+            print(f"Saving: {output_path}")
+            plt.savefig(output_path)
             plt.close()
 
         return bin_centers, stat, popt
@@ -1011,7 +1022,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 #######################################
 
 
-def plot_gaussian_field(z, field, space='v', sliced='y'):
+def plot_gaussian_field(z, field, space='v', sliced='y', output_dir='.'):
     """
     Plots a 1D Gaussian random field in velocity or Fourier (k) space.
 
@@ -1027,12 +1038,17 @@ def plot_gaussian_field(z, field, space='v', sliced='y'):
         sliced : {'y', 'n'}, optional
             Whether to slice the field using global `min_slice` and `max_slice`.
             Default is 'y'.
+        output_dir : str, default '.'
+            Directory to save output plots. Created if it does not exist.
 
     Saves
     -----
         {z}_Gaussian_Field_{space}.png :
             A PNG image of the plotted field.
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     space = space.lower()
     if space == 'v':
         filename = f'{z}_Gaussian_Field_v.png'
@@ -1052,16 +1068,20 @@ def plot_gaussian_field(z, field, space='v', sliced='y'):
     if sliced.lower() == 'y':
         data = data[min_slice:max_slice]
 
-    print(f'Saving {filename}')
+    # Save in specified directory
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     plt.plot(data)
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.savefig(filename)
+    plt.savefig(output_path)
+    plt.close()
 
 
-def plot_gaussian_power(z, kmodes, field):
+def plot_gaussian_power(z, kmodes, field, output_dir='.'):
     """
     Plots the underlying model power spectrum.
 
@@ -1069,22 +1089,29 @@ def plot_gaussian_power(z, kmodes, field):
         z (float or str): Redshift label for filename.
         kmodes (np.ndarray): The kmodes corresponding to the field.
         field (np.ndarray): The field to plot (in k-space).
+        output_dir : str, default '.'
+            Directory where the plot will be saved. Created if it does not exist.
 
     Saves:
         {z}__gaussian_power.png: Log-log plot of the Gaussian power spectrum.
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
     filename = f'{z}__gaussian_power.png'
-    print(f'Saving {filename}')
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     plt.loglog(kmodes, field, label=f'z = {z}', color='tab:orange',  ls='--')
     plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
     plt.xlabel(r'kmodes $[km/s]^{-1}$')
     plt.ylabel(r"$P_G(k)$")
-    plt.savefig(filename)
+    plt.savefig(output_path)
+    plt.close()
 
 
-def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
+def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y', output_dir='.'):
     """
     Plots the δ_b field in velocity space, k-space, or redshift-labeled space.
 
@@ -1103,12 +1130,17 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
         sliced : {'y', 'n'}, optional
             Whether to slice the field and x-axis using `min_slice`
             and `max_slice` globals.
+        output_dir : str, default '.'
+            Directory where the plot will be saved. Created if it does not exist.
 
     Saves
     -----
         {z}_delta_field_{space}.png :
             A PNG image of the plotted δ_b field.
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     space = space.lower()
     if space == 'k':
         filename = f'{z}_delta_field_k.png'
@@ -1136,7 +1168,10 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
         if x_ax is not None:
             x_ax = x_ax[min_slice:max_slice]
 
-    print(f'Saving {filename}')
+    # Build full output path
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     if x_ax is not None:
         plt.plot(x_ax, data)
@@ -1144,11 +1179,11 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y'):
         plt.plot(data)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.savefig(filename)
+    plt.savefig(output_path)
     plt.close()
 
 
-def plot_nz(z, field, sliced='y'):
+def plot_nz(z, field, sliced='y', output_dir='.'):
     """
     Plots the lognormally transformed field.
 
@@ -1157,23 +1192,31 @@ def plot_nz(z, field, sliced='y'):
         field (np.ndarray): The field to plot (in velocity space).
         sliced (str, optional): Whether to slice the data ('y' or 'n').
                                 Default 'y'.
+        output_dir : str, default '.'
+            Directory where the plot will be saved. Created if it does not exist.
 
     Saves:
         {z}_nz_field.png: Plot of the lognormal field n(z).
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
     filename = f'{z}_nz_field.png'
-    print(f'Saving {filename}')
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     plt.plot(field)
     plt.xlabel('Velocity [km/s]')
     plt.ylabel(rf"n(z = {z})")
-    plt.savefig(filename)
+    plt.savefig(output_path)
+    plt.close()
 
 
-def plot_optical_depth(z, field, sliced='y'):
+def plot_optical_depth(z, field, sliced='y', output_dir='.'):
     """
     Plots the optical depth in velocity space.
 
@@ -1182,24 +1225,32 @@ def plot_optical_depth(z, field, sliced='y'):
         field (np.ndarray): The field to plot (optical depth).
         sliced (str, optional): Whether to slice the data ('y' or 'n').
                                 Default 'y'.
+        output_dir : str, default '.'
+            Directory where the plot will be saved. Created if it does not exist.
 
     Saves:
         {z}_optical_depth.png: Plot of the optical depth τ(z).
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
     filename = f'{z}_optical_depth.png'
-    print(f'Saving {filename}')
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     plt.plot(field)
     plt.xlabel('Velocity [km/s]')
     plt.ylabel(rf'$\tau(z = {z})$')
-    plt.savefig(filename)
+    plt.savefig(output_path)
+    plt.close()
 
 
 def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
-                      nu, space='v', sliced='y'):
+                      nu, space='v', sliced='y', output_dir='.'):
     """
     Plots the transmission field in velocity or wavelength space.
 
@@ -1227,12 +1278,17 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
         sliced : {'y', 'n'}, optional
             Whether to slice the field and x-axis using `min_slice`,
             `max_slice`.
+        output_dir : str, default '.'
+            Directory where the plot will be saved. Created if it does not exist.
 
     Saves
     -----
     {safe_z}_transmission_field_{space}.png :
         A PNG image of the transmission field with mean flux line.
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     space = space.lower()
     if space == 'v':
         filename = f'{safe_z}_transmission_field_v.png'
@@ -1257,7 +1313,10 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
         data = data[min_slice:max_slice]
         if x_ax is not None:
             x_ax = x_ax[min_slice:max_slice]
-    print(f'Saving {filename}')
+
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
+
     plt.figure()
     if x_ax is not None:
         plt.plot(x_ax, data)
@@ -1270,10 +1329,11 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.legend(loc='lower left')
-    plt.savefig(filename)
+    plt.savefig(output_path)
+    plt.close()
 
 
-def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
+def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array, output_dir='.'):
     """
     Plot measured mean flux against the Turner et al. (2024) model with percent residuals.
 
@@ -1282,7 +1342,12 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     - mean_flux_array (array-like): Measured mean flux values.
     - model_z (array-like): Redshift values for the model curve.
     - model_flux_array (array-like): Model mean flux values.
+    - output_dir : str, default '.',  Directory where the plot will be saved.
+                                      Created if it does not exist.
     """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
     # Interpolate model to z_target for residuals
     interp_model_at_target = np.interp(z_target, model_z, model_flux_array)
     residuals = 100 * (mean_flux_array -
@@ -1295,22 +1360,22 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
 
     # Top panel: mean flux comparison
     ax1.plot(model_z, model_flux_array,
-             label='Turner et al., 2024', 
+             label='Turner et al., 2024',
              lw=3, alpha=0.5, color=CB_color_cycle[0])
     ax1.plot(z_target, mean_flux_array, label='Measured',
-            linestyle='dotted', lw=2,
-            marker='o', markersize=6,
-            color=CB_color_cycle[1])
-    
+             linestyle='dotted', lw=2,
+             marker='o', markersize=6,
+             color=CB_color_cycle[1])
+
     ax1.set_ylabel(r'$\bar F(z)$')
     ax1.legend(loc='lower left')
     ax1.grid()
 
     # Bottom panel: percent difference
     ax2.axhline(0, color=CB_color_cycle[6], lw=1, ls='--')
-    ax2.plot(z_target, residuals, marker='o', 
-            color='black', alpha=0.7, lw=2, 
-            markersize=6, ls='dotted')
+    ax2.plot(z_target, residuals, marker='o',
+             color='black', alpha=0.7, lw=2,
+             markersize=6, ls='dotted')
     ax2.set_xlabel('z')
     ax2.set_ylabel('% Difference')
     ax2.grid()
@@ -1329,8 +1394,9 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array):
     )
 
     # Save figure
-    print('Saving: Mean_Flux_Measured.png')
-    plt.savefig('Mean_Flux_Measured.png')
+    filename = 'Mean_Flux_Measured.png'
+    output_path = os.path.join(output_dir, filename)
+    print(f'Saving {output_path}')
     plt.close()
 
 
@@ -1357,6 +1423,7 @@ Command-line Arguments:
     --fit_params [str]: Comma-separated values or file for tau0, tau1, nu, sigma2.
     --N_mocks [int]: Number of mocks per redshift (default: 1).
     --plot_* [flags]: Optional flags to generate various diagnostic plots.
+    --output_dir: Optional output directory, saves to working directory if not specified.
 
 Outputs:
     - Transmission files for each mock.
@@ -1376,6 +1443,8 @@ def main():
                         help='Number of mocks per redshift to generate (optional, default = 1)')
     parser.add_argument('--fit_params', type=str, required=False,
                         help='Optional comma-separated values (tau0,tau1,nu,sigma2) or a file with these values. If omitted, uses defaults.')
+    parser.add_argument('--output_dir', type=str, default='.',
+                        help='Directory where all output files and plots will be saved (default: current directory).')
 
     parser.add_argument('--plot_gaussian_field', action='store_true',
                         help='Generate and save a figure of initial Gaussian random grid (default: False)')
@@ -1396,6 +1465,9 @@ def main():
     parser.add_argument('--plot_transmission_w', action='store_true',
                         help='Generate and save a figure of the transmission field in wavelength space (default: False)')
     args = parser.parse_args()
+
+    # ensure output directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
 
     z0 = PD13_PIVOT_Z
 
@@ -1486,7 +1558,7 @@ def main():
         bin_centers, statistic, popt = fit_and_plot_power(
             delta_f=delta_f_per_z, z=z, dv=dv, safe_z=safe_z,
             N_mocks=args.N_mocks, z_target=z_target,
-            all_z='n', plot='y')
+            all_z='n', plot='y', output_dir=args.output_dir)
 
         if redshift_index == 0:
             len_k_bins = len(statistic)
@@ -1512,45 +1584,56 @@ def main():
         print("\n###  Saving Figures  ###\n")
         if args.plot_gaussian_field:
             plot_gaussian_field(
-                safe_z, gaussian_random_field_v, space='v', sliced='y')
+                safe_z, gaussian_random_field_v, space='v', sliced='y',
+                output_dir=args.output_dir)
 
         if args.plot_gaussian_power:
-            plot_gaussian_power(safe_z, k_array, power_array)
+            plot_gaussian_power(safe_z, k_array, power_array,
+                                output_dir=args.output_dir)
 
         if args.plot_delta_k:
             plot_delta_field(safe_z, kmodes, velocity_grid,
-                             delta_b_tilde, space='k', sliced='n')
+                             delta_b_tilde, space='k', sliced='n',
+                             output_dir=args.output_dir)
         if args.plot_delta_v:
             plot_delta_field(safe_z, kmodes, velocity_grid,
-                             delta_b_v, space='v', sliced='y')
+                             delta_b_v, space='v', sliced='y',
+                             output_dir=args.output_dir)
         if args.plot_delta_z:
             plot_delta_field(safe_z, kmodes, velocity_grid,
-                             delta_b_z, space='z', sliced='y')
+                             delta_b_z, space='z', sliced='y',
+                             output_dir=args.output_dir)
         if args.plot_nz:
-            plot_nz(safe_z, n_z, sliced='y')
+            plot_nz(safe_z, n_z, sliced='y',
+                    output_dir=args.output_dir)
         if args.plot_optical_depth:
-            plot_optical_depth(safe_z, x_z, sliced='y')
+            plot_optical_depth(safe_z, x_z, sliced='y',
+                               output_dir=args.output_dir)
         if args.plot_transmission_v:
             plot_transmission(z, safe_z, velocity_grid,
                               f_z, variance_1d, tau0, tau1, nu,
-                              space='v', sliced='y')
+                              space='v', sliced='y',
+                              output_dir=args.output_dir)
         if args.plot_transmission_w:
             plot_transmission(z, safe_z, velocity_grid,
                               f_z, variance_1d, tau0, tau1, nu,
-                              space='w', sliced='y')
+                              space='w', sliced='y',
+                              output_dir=args.output_dir)
 
     ### Measure / Plot Mean Flux ###
     mean_flux_array = np.array(mean_flux_array)
     model_z = np.linspace(min(z_target), max(z_target), 500)
     model_flux_array = np.array([turner24_mf(z) for z in model_z])
 
-    plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array)
+    plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
+                   output_dir=args.output_dir)
 
     ### Fit / Plot Power for all z ###
     fit_and_plot_power(z_target=z_target, k_arrays=k_arrays,
                        power_arrays=power_per_z_array,
                        delta_f_array=delta_f_per_z_array,
-                       dv_array=dv_per_z_array, all_z='y')
+                       dv_array=dv_per_z_array, all_z='y',
+                       output_dir=args.output_dir)
 
 
 if __name__ == "__main__":
