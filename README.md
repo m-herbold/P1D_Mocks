@@ -178,7 +178,12 @@ The script generates mock transmitted flux fields by:
 
 - `--N_mocks`:  
   - Number of mocks to generate per redshift (default: 1).
-
+ 
+- `--output_dir`:  
+  - Optionally provide an output directory for the plots and files.
+  - Will create a path if one does not exist already.
+  - If not specified, will default to the current working directory. 
+    
 - Plotting flags (all optional, default off):
   - `--plot_gaussian_field`
   - `--plot_gaussian_power`
