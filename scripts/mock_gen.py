@@ -16,6 +16,7 @@ from scipy.optimize import curve_fit
 from datetime import datetime
 from scipy import integrate
 from pathlib import Path
+from astropy.io import fits
 
 
 #######################################
@@ -519,7 +520,11 @@ def turner24_mf(z):
 
 def export_transmission(z_safe, v_array, f_array):
     """
-    Exports velocity and flux arrays to a uniquely named transmission file.
+    Exports velocity and flux arrays to a uniquely named FITS transmission file.
+
+    Writes a FITS binary table with columns:
+      - VELOCITY [km/s] (float32)
+      - FLUX (float32)
 
     Args:
         z_safe (str): Redshift string with periods replaced by dashes.
@@ -530,7 +535,7 @@ def export_transmission(z_safe, v_array, f_array):
         str: Path to the directory where the file was saved.
 
     Raises:
-        OSError: If the directory cannot be created or written to.
+        OSError: If the directory cannot be created or the file cannot be written.
     """
     # Build export path
     base_dir = os.path.dirname(__file__)
@@ -538,18 +543,38 @@ def export_transmission(z_safe, v_array, f_array):
     os.makedirs(trans_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
-    # File name
-    filename = f"transmission_{z_safe}_{unique_id}.txt"
+    # File name (.fits)
+    filename = f"transmission_{z_safe}_{unique_id}.fits"
     filepath = os.path.join(trans_dir, filename)
 
-    # Export
-    export_data = np.column_stack((v_array, f_array))
-    np.savetxt(filepath, export_data, fmt="%.6e", delimiter="\t",
-               header="Velocity [km/s]\tFlux")
+    # Prepare FITS columns (use float32 for size/speed)
+    col_v = fits.Column(name='VELOCITY',
+                        array=np.asarray(v_array, dtype=np.float32),
+                        format='E', unit='km/s')
+    col_f = fits.Column(name='FLUX',
+                        array=np.asarray(f_array, dtype=np.float32),
+                        format='E')
+
+    hdu_table = fits.BinTableHDU.from_columns(
+        [col_v, col_f], name='TRANSMISSION')
+
+    # Primary HDU with useful metadata
+    primary = fits.PrimaryHDU()
+    hdr = primary.header
+    hdr['CREATED'] = (datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                      'UTC creation time')
+    hdr['ZSAFE'] = (z_safe, 'Redshift label used in filename')
+    hdr['LAM0'] = (lambda_0, 'Lya rest wavelength [Angstrom]')
+    hdr['DV'] = (dv_fid, 'Velocity spacing [km/s]')
+    hdr['AUTHOR'] = ('mock_gen.py', 'Generator script')
+
+    # Write FITS
+    hdul = fits.HDUList([primary, hdu_table])
+    hdul.writeto(filepath, overwrite=True)
 
     return (trans_dir)
 
@@ -741,7 +766,8 @@ def get_k_range_desi2025(z):
 
 def compute_rms_error(measurement, target, mask=None):
     """
-    Computes the root-mean-square (RMS) fractional error between measurement and target.
+    Computes the root-mean-square (RMS) fractional error between
+    measurement and target.
 
     Args:
         measurement (np.ndarray): Measured values.
@@ -758,18 +784,118 @@ def compute_rms_error(measurement, target, mask=None):
     return np.sqrt(np.mean(frac_diff**2))
 
 
+def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir):
+    """
+    Save the 1D power spectrum (k, P1D) to a uniquely named FITS file.
+
+    Parameters
+    ----------
+    safe_z : str
+        Redshift string with periods replaced by dashes (e.g. '2-4').
+    k_array : np.ndarray
+        Wavenumber array [s/km].
+    p1d_array : np.ndarray
+        1D flux power spectrum.
+    output_dir : str
+        Directory to save the FITS file.
+
+    Returns
+    -------
+    str
+        Path to the saved FITS file.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Unique ID (timestamp + random suffix)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = f"{safe_z}_P1D_{unique_id}.fits"
+    filepath = os.path.join(output_dir, filename)
+
+    # Build FITS table
+    col_k = fits.Column(name='K', array=np.asarray(k_array, dtype=np.float32),
+                        format='E', unit='(km/s)^-1')
+    col_p = fits.Column(name='P1D', array=np.asarray(p1d_array, dtype=np.float32),
+                        format='E')
+    hdu_table = fits.BinTableHDU.from_columns([col_k, col_p], name='POWER')
+
+    # Primary HDU metadata
+    primary = fits.PrimaryHDU()
+    hdr = primary.header
+    hdr['CREATED'] = (datetime.utcnow().strftime(
+        "%Y-%m-%dT%H:%M:%SZ"), 'UTC creation time')
+    hdr['ZSAFE'] = (safe_z, 'Redshift label used in filename')
+    hdr['AUTHOR'] = ('fit_and_plot_power', 'Generator function')
+
+    fits.HDUList([primary, hdu_table]).writeto(filepath, overwrite=True)
+    return filepath
+
+
+def export_power_stats_fits(safe_z, stats_dict, output_dir):
+    """
+    Save RMS and % difference statistics for a redshift into a FITS file.
+
+    Parameters
+    ----------
+    safe_z : str
+        Redshift string with periods replaced by dashes (e.g. '2-4').
+    stats_dict : dict
+        Dictionary of statistics to store, e.g.:
+        {
+            'RMS_MH_2020': float,
+            'MeanDiff_MH_2020': float,
+            'MaxDiff_MH_2020': float,
+            ...
+        }
+    output_dir : str
+        Directory to save the FITS file.
+
+    Returns
+    -------
+    str
+        Path to the saved FITS file.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+    filename = f"{safe_z}_P1D_stats_{unique_id}.fits"
+    filepath = os.path.join(output_dir, filename)
+
+    # Prepare columns dynamically from stats_dict
+    cols = []
+    for key, val in stats_dict.items():
+        cols.append(fits.Column(name=key.upper(), array=np.array(
+            [val], dtype=np.float32), format='E'))
+    hdu_table = fits.BinTableHDU.from_columns(cols, name='STATS')
+
+    primary = fits.PrimaryHDU()
+    hdr = primary.header
+    hdr['CREATED'] = (datetime.utcnow().strftime(
+        "%Y-%m-%dT%H:%M:%SZ"), 'UTC creation time')
+    hdr['ZSAFE'] = (safe_z, 'Redshift label used in filename')
+
+    fits.HDUList([primary, hdu_table]).writeto(filepath, overwrite=True)
+    return filepath
+
+
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
                        N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None,
                        all_z='n', plot='y', output_dir='.'):
     """
-    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally plot it.
+    Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally
+    plot it.
 
     Two operation modes:
-    - **Single-redshift mode (`all_z='n'`)**: Fits the power spectrum at a single redshift
-      using `delta_f` and `dv`, and optionally plots comparison against reference models.
-    - **Multi-redshift mode (`all_z='y'`)**: Fits and plots the power spectra across all
-      redshifts in `z_target`, but does not return fit results.
+    - **Single-redshift mode (`all_z='n'`)**: Fits the power spectrum at a
+      single redshift using `delta_f` and `dv`, and optionally plots
+      comparison against reference models.
+    - **Multi-redshift mode (`all_z='y'`)**: Fits and plots the power spectra
+      across all redshifts in `z_target`, but does not return fit results.
 
     Parameters
     ----------
@@ -1016,6 +1142,42 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             plt.savefig(output_path)
             plt.close()
 
+        # --- Save P1D FITS ---
+        power_fits_path = export_power_spectrum_fits(safe_z,
+                                                     bin_centers[w_k],
+                                                     stat[w_k], output_dir)
+        print(f"Saved power spectrum FITS: {power_fits_path}")
+
+        # --- Save statistics FITS ---
+        stats = {
+            'RMS_MH_2020': compute_rms_error(stat, desi_model, wk_2020),
+            'MEANDIFF_MH_2020': percent_diff_mock_measure[wk_2020].mean(),
+            'MAXDIFF_MH_2020': np.abs(percent_diff_mock_measure[wk_2020]).max(),
+
+            'RMS_NK20_2020': compute_rms_error(naim_2020_fit, desi_model, wk_2020),
+            'MEANDIFF_NK20_2020': percent_diff_naim_fit[wk_2020].mean(),
+            'MAXDIFF_NK20_2020': np.abs(percent_diff_naim_fit[wk_2020]).max(),
+
+            'RMS_MH_2023': compute_rms_error(stat, desi_model, wk_2023),
+            'MEANDIFF_MH_2023': percent_diff_mock_measure[wk_2023].mean(),
+            'MAXDIFF_MH_2023': np.abs(percent_diff_mock_measure[wk_2023]).max(),
+
+            'RMS_NK20_2023': compute_rms_error(naim_2020_fit, desi_model, wk_2023),
+            'MEANDIFF_NK20_2023': percent_diff_naim_fit[wk_2023].mean(),
+            'MAXDIFF_NK20_2023': np.abs(percent_diff_naim_fit[wk_2023]).max(),
+
+            'RMS_MH_2025': compute_rms_error(stat, desi_model, wk_2025),
+            'MEANDIFF_MH_2025': percent_diff_mock_measure[wk_2025].mean(),
+            'MAXDIFF_MH_2025': np.abs(percent_diff_mock_measure[wk_2025]).max(),
+
+            'RMS_NK20_2025': compute_rms_error(naim_2020_fit, desi_model, wk_2025),
+            'MEANDIFF_NK20_2025': percent_diff_naim_fit[wk_2025].mean(),
+            'MAXDIFF_NK20_2025': np.abs(percent_diff_naim_fit[wk_2025]).max()
+        }
+
+        stats_fits_path = export_power_stats_fits(safe_z, stats, output_dir)
+        print(f"Saved stats FITS: {stats_fits_path}")
+
         return bin_centers, stat, popt
 
 
@@ -1111,7 +1273,8 @@ def plot_gaussian_power(z, kmodes, field, output_dir='.'):
     plt.close()
 
 
-def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y', output_dir='.'):
+def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
+                     output_dir='.'):
     """
     Plots the δ_b field in velocity space, k-space, or redshift-labeled space.
 
@@ -1333,9 +1496,11 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     plt.close()
 
 
-def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array, output_dir='.'):
+def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
+                   output_dir='.'):
     """
-    Plot measured mean flux against the Turner et al. (2024) model with percent residuals.
+    Plot measured mean flux against the Turner et al. (2024) model with
+    percent residuals.
 
     Parameters:
     - z_target (array-like): Redshift values for the measured mean flux.
