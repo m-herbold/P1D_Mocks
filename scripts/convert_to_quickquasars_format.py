@@ -4,8 +4,8 @@ Conversion script to transform transmission files from mock_gen.py
 to the format expected by quickquasars. 
 
 Usage:  
-    python convert_to_quickquasars_format.py --input transmission_2-2_*. fits \
-        --output transmission-16-12345. fits --ra 150.0 --dec 2.0 \
+    python convert_to_quickquasars_format.py --input transmission_2-2_*. fits 
+        --output transmission-16-12345. fits --ra 150.0 --dec 2.0 
         --redshift 2.2 --mockid 1000 --nside 16 --pixel 12345
 """
 
@@ -16,12 +16,13 @@ from astropy.io import fits
 from astropy.table import Table
 from pathlib import Path
 
-
 def convert_transmission_to_quickquasars(input_files, output_file, 
                                          ra_values, dec_values, 
                                          redshift_values, mockid_start,
                                          nside=16, pixel=None,
-                                         healpix_nest=True):
+                                         healpix_nest=True,
+                                         wavelength_min=None,
+                                         wavelength_max=None):
     """
     Convert transmission FITS files from mock_gen.py to quickquasars format.
     
@@ -45,6 +46,10 @@ def convert_transmission_to_quickquasars(input_files, output_file,
         HEALPix pixel number
     healpix_nest : bool
         Whether HEALPix scheme is nested (True) or ring (False)
+    wavelength_min : float, optional
+        Minimum wavelength to include in output (Angstroms)
+    wavelength_max : float, optional
+        Maximum wavelength to include in output (Angstroms)
     """
     
     n_spectra = len(input_files)
@@ -64,7 +69,7 @@ def convert_transmission_to_quickquasars(input_files, output_file,
             print(f"Found velocity spacing: dv = {dv} km/s")
         if 'LAM0' in primary_header:
             lambda_lya = primary_header['LAM0']
-            print(f"Found Lya wavelength: λ_0 = {lambda_lya} Å")
+            print(f"Found Lya wavelength: λ_0 = {lambda_lya} A")
         else:
             lambda_lya = 1215.67  # Default
     
@@ -77,6 +82,23 @@ def convert_transmission_to_quickquasars(input_files, output_file,
     lambda_central = lambda_lya * (1 + z_ref)
     wavelength = lambda_central * (1 + velocity_grid / c)
     
+    # Apply wavelength range filter if specified
+    if wavelength_min is not None or wavelength_max is not None:
+        mask = np.ones(len(wavelength), dtype=bool)
+        
+        if wavelength_min is not None:
+            mask &= (wavelength >= wavelength_min)
+            print(f"Applying minimum wavelength filter: {wavelength_min} A")
+        
+        if wavelength_max is not None:
+            mask &= (wavelength <= wavelength_max)
+            print(f"Applying maximum wavelength filter: {wavelength_max} A")
+        
+        wavelength = wavelength[mask]
+        print(f"Filtered wavelength array from {len(mask)} to {len(wavelength)} pixels")
+    else:
+        mask = None
+    
     n_wave = len(wavelength)
     
     # Initialize transmission array
@@ -86,10 +108,16 @@ def convert_transmission_to_quickquasars(input_files, output_file,
     for i, fname in enumerate(input_files):
         with fits.open(fname) as hdul:
             trans_table = Table.read(hdul['TRANSMISSION'])
-            transmission_array[i, :] = trans_table['FLUX']
+            transmission_data = trans_table['FLUX']
+            
+            # Apply wavelength mask if specified
+            if mask is not None:
+                transmission_data = transmission_data[mask]
+            
+            transmission_array[i, :] = transmission_data
     
     print(f"Transmission array shape: {transmission_array.shape}")
-    print(f"Wavelength range: {wavelength.min():.1f} - {wavelength.max():.1f} Å")
+    print(f"Wavelength range: {wavelength.min():.1f} - {wavelength.max():.1f} A")
     print(f"Mean transmission: {transmission_array.mean():.4f}")
     
     # Create METADATA table
@@ -98,7 +126,7 @@ def convert_transmission_to_quickquasars(input_files, output_file,
     metadata['RA'] = np.array(ra_values, dtype=np.float64)
     metadata['DEC'] = np. array(dec_values, dtype=np.float64)
     metadata['Z'] = np.array(redshift_values, dtype=np.float64)
-    metadata['Z_noRSD'] = np.array(redshift_values, dtype=np.float64)  # same if no RSD applied
+    # metadata['Z_noRSD'] = np.array(redshift_values, dtype=np.float64)  # same if no RSD applied
     
     # Create HDU list
     primary_hdu = fits.PrimaryHDU()
@@ -114,6 +142,14 @@ def convert_transmission_to_quickquasars(input_files, output_file,
     primary_hdu.header['SCHEME'] = 'NEST' if healpix_nest else 'RING'
     primary_hdu.header['COMMENT'] = 'Converted from mock_gen.py output'
     primary_hdu.header['COMMENT'] = f'Original files: {len(input_files)} transmission files'
+    
+    # Add wavelength range info if filtered
+    if wavelength_min is not None:
+        primary_hdu.header['WAVMIN'] = wavelength_min
+        primary_hdu.header['COMMENT'] = f'Wavelength minimum filter: {wavelength_min} A'
+    if wavelength_max is not None:
+        primary_hdu.header['WAVMAX'] = wavelength_max
+        primary_hdu.header['COMMENT'] = f'Wavelength maximum filter: {wavelength_max} A'
     
     # Create METADATA HDU
     metadata_hdu = fits.table_to_hdu(metadata)
@@ -149,7 +185,6 @@ def convert_transmission_to_quickquasars(input_files, output_file,
     
     return output_file
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="Convert transmission files from mock_gen. py to quickquasars format"
@@ -173,6 +208,10 @@ def main():
                         help='HEALPix pixel number')
     parser.add_argument('--nest', action='store_true', default=True,
                         help='Use nested HEALPix scheme (default: True)')
+    parser.add_argument('--wavelength-min', type=float, default=None,
+                        help='Minimum wavelength to include in output (Angstroms)')
+    parser.add_argument('--wavelength-max', type=float, default=None,
+                        help='Maximum wavelength to include in output (Angstroms)')
     
     args = parser.parse_args()
     
@@ -202,7 +241,9 @@ def main():
     convert_transmission_to_quickquasars(
         args.input, args.output,
         ra_values, dec_values, redshift_values,
-        args. mockid, args.nside, args.pixel, args.nest
+        args. mockid, args.nside, args.pixel, args.nest,
+        wavelength_min=args.wavelength_min,
+        wavelength_max=args.wavelength_max
     )
 
 
