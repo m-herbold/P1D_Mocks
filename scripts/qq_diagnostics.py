@@ -33,7 +33,8 @@ def read_fibermap(spectra_path):
             dec = fm["FIBER_DEC"].astype(float)
             ra_name, dec_name = "FIBER_RA", "FIBER_DEC"
         else:
-            raise ValueError("FIBERMAP missing RA/DEC columns (expected TARGET_RA/TARGET_DEC or FIBER_RA/FIBER_DEC)")
+            raise ValueError(
+                "FIBERMAP missing RA/DEC columns (expected TARGET_RA/TARGET_DEC or FIBER_RA/FIBER_DEC)")
 
         return fm, tid, ra, dec, ra_name, dec_name
 
@@ -70,7 +71,8 @@ def match_by_targetid(left_targetid, right_targetid):
     r_tid_sorted = right_targetid[r_sort]
 
     pos = np.searchsorted(r_tid_sorted, left_targetid)
-    ok = (pos >= 0) & (pos < len(r_tid_sorted)) & (r_tid_sorted[pos] == left_targetid)
+    ok = (pos >= 0) & (pos < len(r_tid_sorted)) & (
+        r_tid_sorted[pos] == left_targetid)
 
     i_left = np.where(ok)[0]
     i_right = r_sort[pos[ok]]
@@ -150,8 +152,10 @@ def plot_overview(fm, ra, dec, ra_name, dec_name, z, z_name, outprefix):
 
     # redshift hist
     ax = axes[0, 0]
-    bins = np.linspace(np.nanmin(z), np.nanmax(z), 30) if np.isfinite(z).any() else 30
-    ax.hist(z[np.isfinite(z)], bins=bins, alpha=0.8, color="steelblue", edgecolor="black")
+    bins = np.linspace(np.nanmin(z), np.nanmax(
+        z), 30) if np.isfinite(z).any() else 30
+    ax.hist(z[np.isfinite(z)], bins=bins, alpha=0.8,
+            color="steelblue", edgecolor="black")
     ax.set_xlabel(f"Redshift ({z_name})")
     ax.set_ylabel("Number of QSOs")
     ax.set_title("Redshift distribution (from TRUTH)")
@@ -172,7 +176,8 @@ def plot_overview(fm, ra, dec, ra_name, dec_name, z, z_name, outprefix):
         zbins = np.linspace(zfinite.min(), zfinite.max(), 15)
         counts, _ = np.histogram(zfinite, bins=zbins)
         zcent = 0.5 * (zbins[:-1] + zbins[1:])
-        ax.bar(zcent, counts, width=0.8 * (zbins[1] - zbins[0]), color="slateblue", alpha=0.8)
+        ax.bar(zcent, counts, width=0.8 *
+               (zbins[1] - zbins[0]), color="slateblue", alpha=0.8)
         ax.set_xlabel(f"Redshift ({z_name})")
         ax.set_ylabel("Count")
         ax.set_title("Counts per redshift bin")
@@ -241,7 +246,8 @@ def plot_wavelength_grid(wave_by_band, outprefix):
             f"{b}: N={len(w)} range={w.min():.1f}..{w.max():.1f} Å",
             f"   mean dλ={dw.mean():.4f} median dλ={np.median(dw):.4f} std dλ={dw.std():.6f}",
         ]
-    ax.text(0.05, 0.95, "\n".join(lines), va="top", family="monospace", fontsize=10)
+    ax.text(0.05, 0.95, "\n".join(lines), va="top",
+            family="monospace", fontsize=10)
 
     _savefig(f"{outprefix}_2_wavelength_grid.png")
 
@@ -252,11 +258,13 @@ def plot_mean_flux_vs_z(z, z_name, wave_by_band, band_flux, band_ivar, band_mask
     each quasar's observed Lyman-alpha wavelength.
     """
     bands = list(band_flux.keys())
-    fig, axes = plt.subplots(2, len(bands), figsize=(6 * len(bands), 9), squeeze=False)
+    fig, axes = plt.subplots(2, len(bands), figsize=(
+        6 * len(bands), 9), squeeze=False)
 
     zfinite = z[np.isfinite(z)]
     if len(zfinite) == 0:
-        raise ValueError("No finite redshifts available for mean-flux-vs-z plots.")
+        raise ValueError(
+            "No finite redshifts available for mean-flux-vs-z plots.")
 
     zbins = np.linspace(zfinite.min(), zfinite.max(), 20)
     zcent = 0.5 * (zbins[:-1] + zbins[1:])
@@ -273,7 +281,8 @@ def plot_mean_flux_vs_z(z, z_name, wave_by_band, band_flux, band_ivar, band_mask
         ax.scatter(z, mf, s=10, alpha=0.4)
         ax.set_xlabel(f"Redshift ({z_name})")
         ax.set_ylabel(f"Mean flux ({b})")
-        ax.set_title(f"Mean flux vs z ({b})\n" r"(blue side of Ly$\alpha$ only)")
+        ax.set_title(
+            f"Mean flux vs z ({b})\n" r"(blue side of Ly$\alpha$ only)")
         ax.grid(True, alpha=0.3)
 
         ax = axes[1, j]
@@ -282,12 +291,14 @@ def plot_mean_flux_vs_z(z, z_name, wave_by_band, band_flux, band_ivar, band_mask
             ax.text(0.5, 0.5, f"No valid blue-side pixels\nin band {b}",
                     ha="center", va="center", transform=ax.transAxes)
         else:
-            bs = binned_statistic(z[finite_mf], mf[finite_mf], statistic="mean", bins=zbins)
+            bs = binned_statistic(
+                z[finite_mf], mf[finite_mf], statistic="mean", bins=zbins)
             valid = np.isfinite(bs.statistic)
             ax.plot(zcent[valid], bs.statistic[valid], "o-", lw=2)
         ax.set_xlabel(f"Redshift ({z_name})")
         ax.set_ylabel(f"Binned mean flux ({b})")
-        ax.set_title(f"Binned mean flux ({b})\n" r"(blue side of Ly$\alpha$ only)")
+        ax.set_title(
+            f"Binned mean flux ({b})\n" r"(blue side of Ly$\alpha$ only)")
         ax.grid(True, alpha=0.3)
 
     _savefig(f"{outprefix}_3_mean_flux_vs_z.png")
@@ -300,7 +311,8 @@ def plot_random_spectra(z, z_name, wave_by_band, band_flux, band_ivar, band_mask
     idxs = rng.choice(n, size=nspec, replace=False)
 
     bands = list(band_flux.keys())
-    fig, axes = plt.subplots(nspec, len(bands), figsize=(6 * len(bands), 3.5 * nspec), squeeze=False)
+    fig, axes = plt.subplots(nspec, len(bands), figsize=(
+        6 * len(bands), 3.5 * nspec), squeeze=False)
 
     for i, idx in enumerate(idxs):
         for j, b in enumerate(bands):
@@ -320,11 +332,13 @@ def plot_random_spectra(z, z_name, wave_by_band, band_flux, band_ivar, band_mask
             if np.any(good):
                 sig = np.full_like(f, np.nan, dtype=float)
                 sig[good] = 1.0 / np.sqrt(iv[good])
-                ax.fill_between(w, fp - sig, fp + sig, color="tab:blue", alpha=0.15, linewidth=0)
+                ax.fill_between(w, fp - sig, fp + sig,
+                                color="tab:blue", alpha=0.15, linewidth=0)
 
             if np.isfinite(z[idx]):
                 lya_obs = LYA_WAVELENGTH * (1.0 + z[idx])
-                ax.axvline(lya_obs, color="red", ls=":", alpha=0.8, label=f"Lyα (z={z[idx]:.2f})")
+                ax.axvline(lya_obs, color="red", ls=":", alpha=0.8,
+                           label=f"Lyα (z={z[idx]:.2f})")
 
             ax.set_xlabel("Wavelength [Å]")
             ax.set_ylabel("Flux")
@@ -345,9 +359,11 @@ def main():
         description="Diagnostics for quickquasars spectra/truth outputs; uses FIBERMAP for RA/DEC and TRUTH for Z."
     )
     ap.add_argument("--spectra", required=True, help="Path to spectra-*.fits")
-    ap.add_argument("--truth", required=True, help="Path to truth-*.fits (for redshift axis)")
+    ap.add_argument("--truth", required=True,
+                    help="Path to truth-*.fits (for redshift axis)")
     ap.add_argument("--outprefix", default="qqdiag", help="Output plot prefix")
-    ap.add_argument("--nspec", type=int, default=3, help="Number of random spectra to plot")
+    ap.add_argument("--nspec", type=int, default=3,
+                    help="Number of random spectra to plot")
     args = ap.parse_args()
 
     # plot style
@@ -390,12 +406,14 @@ def main():
     # plots
     plot_overview(fm, ra, dec, ra_name, dec_name, z, z_name, args.outprefix)
     plot_wavelength_grid(wave_by_band, args.outprefix)
-    plot_mean_flux_vs_z(z, z_name, wave_by_band, band_flux, band_ivar, band_mask, args.outprefix)
+    plot_mean_flux_vs_z(z, z_name, wave_by_band, band_flux,
+                        band_ivar, band_mask, args.outprefix)
     plot_random_spectra(z, z_name, wave_by_band, band_flux, band_ivar, band_mask, args.outprefix,
                         nspec=args.nspec)
 
     print(f"Wrote plots: {args.outprefix}_*.png")
-    print(f"Matched {len(z)} objects by TARGETID between spectra FIBERMAP and truth TRUTH.")
+    print(
+        f"Matched {len(z)} objects by TARGETID between spectra FIBERMAP and truth TRUTH.")
 
 
 if __name__ == "__main__":
