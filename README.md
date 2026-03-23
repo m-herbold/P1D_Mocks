@@ -44,6 +44,9 @@ This repo provides a suite of scripts for fitting the one dimensional flux power
 └── scripts
 │   ├── mock_fit.py                         # main fitting code
 │   ├── mock_gen.py                         # main mock generation code
+│   ├── convert_transmission_format.py      # code to reformat mock_gen.py output 
+│   ├── QQ_format.py                        # helper code to format transmission output
+│   ├── QQ_diagnostics.py                   # helper code to analyze reformatted output
 └── transmission_files                      # output by mock_gen.py
 │   ├── e.g. {redshift}
 │   │   ├── e.g. transmission_{redshift}_{date}_{ID}txt
@@ -107,12 +110,12 @@ Depending on the flags, generates a number of plots.
 
 Basic Example
 ```bash
-python /.../scripts/mock_fit_v4.py --z_target 3.0 --plot_mean_flux --plot_recovered_power
+python /.../scripts/mock_fit.py --z_target 3.0 --plot_mean_flux --plot_recovered_power
 ```
 
 Using Custom Data Files
 ```bash
-python /.../scripts/mock_fit_v4.py \
+python /.../scripts/mock_fit.py \
   --z_target redshifts.txt \
   --power_file input_power.txt \
   --flux_file input_flux.txt \
@@ -210,7 +213,7 @@ The script generates mock transmitted flux fields by:
 
 Basic, defaults to DESI-like mean flux and P1D:
 ``` bash
-python /.../scripts/mock_gen_v2.py \
+python /.../scripts/mock_gen.py \
     --z_target 2.0,2.2,2.4 \
     --N_mocks 100 \
     --plot_transmission_w
@@ -218,7 +221,7 @@ python /.../scripts/mock_gen_v2.py \
 
 Using user-specified redshift, power, and mean flux parameter information:
 ```bash
-python /.../scripts/mock_gen_v2.py \
+python /.../scripts/mock_gen.py \
     --z_target redshifts.txt \
     --power_files "P_G-2-2.txt,P_G-2-4.txt,P_G-2-6.txt" \
     --N_mocks 100 \
