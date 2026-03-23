@@ -106,7 +106,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-from convert_to_quickquasars_format import convert_transmission_to_quickquasars
+from QQ_format import convert_transmission_to_quickquasars
 
 CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                   '#f781bf', '#a65628', '#984ea3',
