@@ -44,7 +44,7 @@ DESI_EDR_PARAMETERS = (
     7.63089e-02, -2.52054e+00, -1.27968e-01,
     3.67469e+00, 2.85951e-01, 7.33473e+02)
 
-Naim_etal_2020_param = (
+karacayli_etal_2020_param = (
     0.066, -2.685, -0.22,
     3.59, -0.18, 0.53)
 
@@ -518,7 +518,7 @@ def turner24_mf(z):
     return np.exp(tau_0 * (1 + z)**gamma)
 
 
-def export_transmission(z_safe, v_array, f_array):
+def export_transmission(z_safe, v_array, f_array, output_dir=None):
     """
     Exports velocity and flux arrays to a uniquely named FITS transmission file.
 
@@ -538,8 +538,8 @@ def export_transmission(z_safe, v_array, f_array):
         OSError: If the directory cannot be created or the file cannot be written.
     """
     # Build export path
-    base_dir = os.path.dirname(__file__)
-    trans_dir = os.path.join(base_dir, '..', 'transmission_files', z_safe)
+    base_dir = output_dir if output_dir is not None else '.'
+    trans_dir = os.path.join(base_dir, 'transmission_files', z_safe)
     os.makedirs(trans_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
@@ -784,7 +784,7 @@ def compute_rms_error(measurement, target, mask=None):
     return np.sqrt(np.mean(frac_diff**2))
 
 
-def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir):
+def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir=None):
     """
     Save the 1D power spectrum (k, P1D) to a uniquely named FITS file.
 
@@ -796,23 +796,27 @@ def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir):
         Wavenumber array [s/km].
     p1d_array : np.ndarray
         1D flux power spectrum.
-    output_dir : str
-        Directory to save the FITS file.
+    output_dir : str, optional
+        Root directory for output. Defaults to the working directory.
+        Files are saved as:
+            {output_dir}/transmission_files/{safe_z}/
 
     Returns
     -------
     str
         Path to the saved FITS file.
     """
-    os.makedirs(output_dir, exist_ok=True)
+    # Mirror the same path logic as export_transmission
+    base_dir = output_dir if output_dir is not None else '.'
+    fits_dir = os.path.join(base_dir, 'stats', safe_z)
+    os.makedirs(fits_dir, exist_ok=True)
 
     # Unique ID (timestamp + random suffix)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
-
     filename = f"{safe_z}_P1D_{unique_id}.fits"
-    filepath = os.path.join(output_dir, filename)
+    filepath = os.path.join(fits_dir, filename)
 
     # Build FITS table
     col_k = fits.Column(name='K', array=np.asarray(k_array, dtype=np.float32),
@@ -833,7 +837,7 @@ def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir):
     return filepath
 
 
-def export_power_stats_fits(safe_z, stats_dict, output_dir):
+def export_power_stats_fits(safe_z, stats_dict, output_dir=None):
     """
     Save RMS and % difference statistics for a redshift into a FITS file.
 
@@ -849,21 +853,26 @@ def export_power_stats_fits(safe_z, stats_dict, output_dir):
             'MaxDiff_MH_2020': float,
             ...
         }
-    output_dir : str
-        Directory to save the FITS file.
+    output_dir : str, optional
+        Root directory for output. Defaults to the working directory.
+        Files are saved as:
+            {output_dir}/transmission_files/{safe_z}/
 
     Returns
     -------
     str
         Path to the saved FITS file.
     """
-    os.makedirs(output_dir, exist_ok=True)
+    # Mirror the same path logic as export_transmission
+    base_dir = output_dir if output_dir is not None else '.'
+    fits_dir = os.path.join(base_dir, 'stats', safe_z)
+    os.makedirs(fits_dir, exist_ok=True)
 
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
     filename = f"{safe_z}_P1D_stats_{unique_id}.fits"
-    filepath = os.path.join(output_dir, filename)
+    filepath = os.path.join(fits_dir, filename)
 
     # Prepare columns dynamically from stats_dict
     cols = []
@@ -885,7 +894,7 @@ def export_power_stats_fits(safe_z, stats_dict, output_dir):
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
                        N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None,
-                       all_z='n', plot='y', output_dir='.'):
+                       all_z='n', plot='y', output_dir=None):
     """
     Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally
     plot it.
@@ -998,9 +1007,22 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         ax2.grid(True, ls=':', alpha=0.6)
 
         # Save to output directory
-        output_path = os.path.join(output_dir, "Power_measured.png")
-        print(f"Saving: {output_path}")
-        plt.savefig(output_path)
+        # Build export path
+        base_dir = output_dir if output_dir is not None else '.'
+        plot_dir = os.path.join(base_dir, 'plots')
+        os.makedirs(plot_dir, exist_ok=True)
+
+        # Generate unique ID (timestamp + random digits)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        rand_suffix = f"{random.randint(0, 9999):04d}"
+        unique_id = f"{timestamp}_{rand_suffix}"
+
+        filename = f"Power_measured_{unique_id}.png"
+        filepath = os.path.join(plot_dir, filename)
+
+        # save figure
+        print(f"Saving: {filepath}")
+        plt.savefig(filepath)
         plt.close()
 
     else:
@@ -1025,7 +1047,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             desi_model = evaluatePD13Lorentz(
                 (bin_centers, z), *DESI_EDR_PARAMETERS)
             naim_2020_fit = evaluatePD13Lorentz(
-                (bin_centers, z), *Naim_etal_2020_param)
+                (bin_centers, z), *karacayli_etal_2020_param)
 
             percent_diff_mock_measure = 100 * (stat - desi_model) / desi_model
             percent_diff_mock_fit = 100 * (mock_fit - desi_model) / desi_model
@@ -1060,15 +1082,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             # ax2.legend(loc='upper left')
             ax2.set_ylabel('% Difference')
             ax2.set_xlabel(r'k $[km/s]^{-1}$')
-
-            # ax3.semilogx(bin_centers, percent_diff_naim_fit,
-            #              color='black', label='Karacayli et al., 2020')
-            # ax3.axhline(0, ls='--', color=CB_color_cycle[6])
-            # ax3.set_xlabel(r'k $[km/s]^{-1}$')
-            # ax3.grid(True)
-            # fig.text(0.02, 0.25, "% Difference", va='center',
-            #          rotation='vertical', fontsize=16)
-            # ax3.set_ylabel("")
 
             plt.tight_layout()
 
@@ -1136,8 +1149,20 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             )
 
             # --- save plot to specified output directory ---
-            output_filename = f"{safe_z}_power_fit.png"
-            output_path = os.path.join(output_dir, output_filename)
+            # Build export path
+            base_dir = output_dir if output_dir is not None else '.'
+            plot_dir = os.path.join(base_dir, 'plots')
+            os.makedirs(plot_dir, exist_ok=True)
+
+            # Generate unique ID (timestamp + random digits)
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            rand_suffix = f"{random.randint(0, 9999):04d}"
+            unique_id = f"{timestamp}_{rand_suffix}"
+
+            output_path = f"{safe_z}_power_fit.png_{unique_id}.png"
+            output_path = os.path.join(plot_dir, output_path)
+
+            # save figure
             print(f"Saving: {output_path}")
             plt.savefig(output_path)
             plt.close()
@@ -1184,7 +1209,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 #######################################
 
 
-def plot_gaussian_field(z, field, space='v', sliced='y', output_dir='.'):
+def plot_gaussian_field(z, field, space='v', sliced='y', output_dir=None):
     """
     Plots a 1D Gaussian random field in velocity or Fourier (k) space.
 
@@ -1208,9 +1233,6 @@ def plot_gaussian_field(z, field, space='v', sliced='y', output_dir='.'):
         {z}_Gaussian_Field_{space}.png :
             A PNG image of the plotted field.
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     space = space.lower()
     if space == 'v':
         filename = f'{z}_Gaussian_Field_v.png'
@@ -1230,20 +1252,32 @@ def plot_gaussian_field(z, field, space='v', sliced='y', output_dir='.'):
     if sliced.lower() == 'y':
         data = data[min_slice:max_slice]
 
-    # Save in specified directory
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
-
     plt.figure()
     plt.plot(data)
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
-def plot_gaussian_power(z, kmodes, field, output_dir='.'):
+def plot_gaussian_power(z, kmodes, field, output_dir=None):
     """
     Plots the underlying model power spectrum.
 
@@ -1257,24 +1291,35 @@ def plot_gaussian_power(z, kmodes, field, output_dir='.'):
     Saves:
         {z}__gaussian_power.png: Log-log plot of the Gaussian power spectrum.
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     filename = f'{z}__gaussian_power.png'
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
 
     plt.figure()
     plt.loglog(kmodes, field, label=f'z = {z}', color='tab:orange',  ls='--')
     plt.axvspan(0.05, 1.0, alpha=0.2, color='grey')
     plt.xlabel(r'kmodes $[km/s]^{-1}$')
     plt.ylabel(r"$P_G(k)$")
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
 def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
-                     output_dir='.'):
+                     output_dir=None):
     """
     Plots the δ_b field in velocity space, k-space, or redshift-labeled space.
 
@@ -1301,9 +1346,6 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
         {z}_delta_field_{space}.png :
             A PNG image of the plotted δ_b field.
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     space = space.lower()
     if space == 'k':
         filename = f'{z}_delta_field_k.png'
@@ -1331,10 +1373,6 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
         if x_ax is not None:
             x_ax = x_ax[min_slice:max_slice]
 
-    # Build full output path
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
-
     plt.figure()
     if x_ax is not None:
         plt.plot(x_ax, data)
@@ -1342,11 +1380,27 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
         plt.plot(data)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
-def plot_nz(z, field, sliced='y', output_dir='.'):
+def plot_nz(z, field, sliced='y', output_dir=None):
     """
     Plots the lognormally transformed field.
 
@@ -1361,25 +1415,36 @@ def plot_nz(z, field, sliced='y', output_dir='.'):
     Saves:
         {z}_nz_field.png: Plot of the lognormal field n(z).
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
     filename = f'{z}_nz_field.png'
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
 
     plt.figure()
     plt.plot(field)
     plt.xlabel('Velocity [km/s]')
     plt.ylabel(rf"n(z = {z})")
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
-def plot_optical_depth(z, field, sliced='y', output_dir='.'):
+def plot_optical_depth(z, field, sliced='y', output_dir=None):
     """
     Plots the optical depth in velocity space.
 
@@ -1394,26 +1459,37 @@ def plot_optical_depth(z, field, sliced='y', output_dir='.'):
     Saves:
         {z}_optical_depth.png: Plot of the optical depth τ(z).
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
     filename = f'{z}_optical_depth.png'
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
 
     plt.figure()
     plt.plot(field)
     plt.xlabel('Velocity [km/s]')
     plt.ylabel(rf'$\tau(z = {z})$')
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
 def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
-                      nu, space='v', sliced='y', output_dir='.'):
+                      nu, space='v', sliced='y', output_dir=None):
     """
     Plots the transmission field in velocity or wavelength space.
 
@@ -1449,9 +1525,6 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     {safe_z}_transmission_field_{space}.png :
         A PNG image of the transmission field with mean flux line.
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     space = space.lower()
     if space == 'v':
         filename = f'{safe_z}_transmission_field_v.png'
@@ -1467,7 +1540,7 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
         data = field
         x_ax = wavelength_grid
     else:
-        raise ValueError("Invalid space argument. Use 'v' or 'z'.")
+        raise ValueError("Invalid space argument. Use 'v' or 'w'.")
 
     # mean_flux = mean_flux(z, variance, tau0, tau1, nu)
     mean_f = data.mean()
@@ -1477,9 +1550,6 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
         if x_ax is not None:
             x_ax = x_ax[min_slice:max_slice]
 
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
-
     plt.figure()
     if x_ax is not None:
         plt.plot(x_ax, data)
@@ -1488,16 +1558,32 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     plt.axhline(y=0, color=CB_color_cycle[6], ls='--')
     plt.axhline(y=1, color=CB_color_cycle[6], ls='--')
     plt.axhline(y=mean_f, color=CB_color_cycle[7], ls='--',
-                label=rf'$\overline{{F}}(z) = {mean_flux:.2f}$')
+                label=rf'$\overline{{F}}(z) = {mean_f:.2f}$')
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.legend(loc='lower left')
-    plt.savefig(output_path)
+
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"{timestamp}_{rand_suffix}"
+
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
 def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
-                   output_dir='.'):
+                   output_dir=None):
     """
     Plot measured mean flux against the Turner et al. (2024) model with
     percent residuals.
@@ -1510,9 +1596,6 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
     - output_dir : str, default '.',  Directory where the plot will be saved.
                                       Created if it does not exist.
     """
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
     # Interpolate model to z_target for residuals
     interp_model_at_target = np.interp(z_target, model_z, model_flux_array)
     residuals = 100 * (mean_flux_array -
@@ -1558,10 +1641,23 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
         fontsize=9, ha='left', va='top'
     )
 
-    # Save figure
-    filename = 'Mean_Flux_Measured.png'
-    output_path = os.path.join(output_dir, filename)
-    print(f'Saving {output_path}')
+    # --- save plot to specified output directory ---
+    # Build export path
+    base_dir = output_dir if output_dir is not None else '.'
+    plot_dir = os.path.join(base_dir, 'plots')
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Generate unique ID (timestamp + random digits)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    rand_suffix = f"{random.randint(0, 9999):04d}"
+    unique_id = f"_{timestamp}_{rand_suffix}"
+
+    filename = f"Mean_Flux_Measured_{unique_id}.png"
+    filename = os.path.join(plot_dir, filename)
+
+    # save figure
+    print(f"Saving: {filename}")
+    plt.savefig(filename)
     plt.close()
 
 
@@ -1713,7 +1809,8 @@ def main():
             measured_power = P_F(delta_f, dv)
 
             # export transmission file (velocity_grid is globally defined)
-            filepath = export_transmission(safe_z, velocity_grid, f_z)
+            filepath = export_transmission(
+                safe_z, velocity_grid, f_z, args.output_dir)
         print(f"Saved transmission file(s): {filepath}")
 
         mean_flux_per_z = np.mean(temp_mean_flux)

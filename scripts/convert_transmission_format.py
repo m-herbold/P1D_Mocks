@@ -1,5 +1,85 @@
 #!/usr/bin/env python3
 
+#######################################
+
+"""
+convert_transmission.py
+
+Purpose
+-------
+Convert raw P1D mock transmission files (produced by mock_gen.py)
+into the QuickQuasars (QQ) transmission FITS format, optionally downsampling the
+output catalog in redshift to match a reference quasar catalog.
+
+Quickquasars is a desi script located:
+    https://github.com/desihub/desisim/blob/main/py/desisim/scripts/quickquasars.py
+
+This script:
+      1) Builds or samples a QSO metadata table:
+           - from a reference catalog (--catalog), or
+           - from randomized metadata if no catalog is provided.
+      2) Selects a user-defined number of transmission files per redshift bin.
+      3) Converts the selected files to a single QQ-style transmission FITS file
+         using convert_transmission_to_quickquasars().
+      4) (Optional) Builds a redshift-distribution template from the reference
+         catalog (--z_template) and applies it to downsample the mock catalog.
+      5) (Optional) Produces diagnostic plots.
+
+Inputs
+----------------------------------
+    --spec_path should point to a directory containing redshift subfolders of the form:
+      <spec_path>/<z_int>-<z_frac>/transmission_*.fits
+    For example:
+      .../3-0/transmission_0001.fits
+      .../3-2/transmission_0042.fits
+
+Key command-line arguments
+--------------------------
+    --spec_path  : Path to the transmission directory tree.
+    --outdir     : Directory to write output FITS (required).
+    --zmin       : Minimum redshift (searches spec_path directory)
+    --zmax       : Maximum redshift (searches spec_path directory)
+    --dz         : Redshift bin width (e.g. dz = 0.2, for zbins = 2.0, 2.2...).
+    --N          : Number of QSOs (files) to sample per redshift bin.
+    --seed       : RNG seed for reproducibility.
+    --catalog    : FITS catalog to draw metadata from (TARGETID, Z, RA, DEC, HPXPIXEL).
+    --z_template : If provided (and --catalog is also provided), downsample output
+                  so the mock redshift distribution matches the catalog.
+    --wmin       : Minimum output wavelength range (default: 3600 Å).
+    --wmax       : Maximum output wavelength range (default: 9800 Å).
+    --dwave      : Output wavelength spacing (default: 0.2 Å).
+    --diag_plot  : If set, save diagnostic plots to --outdir.
+
+Outputs
+-------
+    Writes a QQ-format transmission FITS file to --outdir
+    (transmission-<nside>-<pixel>_<idx>.fits),
+    and (if --z_template is used) writes a downsampled version.
+
+Notes
+-----
+    - Redshift bins are rounded to 0.1 to avoid float-key mismatches.
+    - When using --z_template, a reference catalog is required.
+
+Example Usage
+-----
+cmd = f"python convert_transmission.py \
+    --spec_path '/.../transmission_files/' \
+    --z_template True \
+    --catalog '/.../path_to_catalog.fits' \
+    --zmin 2.0 \
+    --zmax 3.8\
+    --dz 0.2 \
+    --seed 123 \
+    --N 10 \
+    --diag_plot True \
+    --outdir '/.../output'"
+!time {cmd}
+
+"""
+
+#######################################
+
 import numpy as np
 import fitsio
 import time
@@ -26,8 +106,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-# from convert_to_quickquasars_format_v2 import convert_transmission_to_quickquasars
-from convert_to_quickquasars_format_v3 import convert_transmission_to_quickquasars
+from QQ_format import convert_transmission_to_quickquasars
 
 CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                   '#f781bf', '#a65628', '#984ea3',
