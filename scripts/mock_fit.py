@@ -29,7 +29,7 @@ plt.rcParams['savefig.bbox'] = 'tight'
 # Colorblind friendly colors
 CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                   '#f781bf', '#a65628', '#984ea3',
-                  '#999999', '#e41a1c', '#dede00', 
+                  '#999999', '#e41a1c', '#dede00',
                   '#000000', '#FFFFFF']
 
 
@@ -38,6 +38,35 @@ CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
 DESI_EDR_PARAMETERS = (
     7.63089e-02, -2.52054e+00, -1.27968e-01,
     3.67469e+00, 2.85951e-01, 7.33473e+02)
+
+DESI_DR1_Z_BINS = np.array([2.2, 2.4, 2.6, 2.8, 3., 3.2,
+                            3.4, 3.6, 3.8, 4., 4.2, 4.4])
+DESI_DR1_PARAMETERS = np.array([
+    [0.03507515, -2.29907081, -0.1060376,  0.05361727,  0.94526747,
+     0.03229189],
+    [0.04041798, -2.39518864, -0.12991116,  0.04184561,  1.12554348,
+     0.04526668],
+    [0.049181, -2.42528694, -0.11157934,  0.04283638,  1.25207902,
+     0.04497229],
+    [0.05781328, -2.48643834, -0.11043877,  0.03354593,  1.38387382,
+     0.04514387],
+    [0.06906784, -2.56540624, -0.1075445,  1.2019191,  1.38387382,
+     0.04829095],
+    [0.07819796, -2.61014011, -0.10039919,  1.22587228,  1.16848522,
+     0.04638555],
+    [0.08781101, -2.66682834, -0.10721731,  1.21903718,  1.00543157,
+     0.0543352],
+    [0.0997971, -2.68677992, -0.09074766,  1.21881293,  1.01031311,
+     0.05509684],
+    [0.11608582, -2.72069483, -0.09155787,  1.22171626,  0.92684527,
+     0.04873036],
+    [0.12680056, -2.75032429, -0.07029002,  1.23364381,  0.88467138,
+     0.05397896],
+    [0.15066845, -2.8148221, -0.13171379,  1.24436379,  0.80802237,
+     0.08497034],
+    [0.16266183, -2.825738, -0.06927853,  1.25187911,  0.76848479,
+     0.0778705]
+])
 
 Naim_2020_parameters = (
     0.066, -2.685, -0.22,
@@ -237,6 +266,44 @@ def PD13Lorentz_DESI_EDR(zlist):
         p1d_edr_fit[i] = evaluatePD13Lorentz((k_arr, z), *DESI_EDR_PARAMETERS)
 
     return p1d_edr_fit
+
+
+def PD13Lorentz_DESI_DR1(zlist):
+    """
+    Evaluates the PD13 Lorentzian model for DESI DR1 at given redshifts.
+    
+    This function computes the 1D power spectrum (P1D) for each target redshift
+    using DESI Data Release 1 (DR1) parameter values.
+
+    Args:
+        zlist (np.ndarray): Array of target redshifts to evaluate.
+
+    Returns:
+        np.ndarray: 2D array of evaluated P1D values with shape (len(zlist), len(k_arr)),
+                    where each row is the P1D at the corresponding redshift in `zlist`,
+                    evaluated using the nearest DR1 fitted parameter bin.
+    """
+    z_min, z_max = DESI_DR1_Z_BINS.min(), DESI_DR1_Z_BINS.max()
+    out_of_range = (zlist < z_min) | (zlist > z_max)
+    if np.any(out_of_range):
+        bad_zs = zlist[out_of_range]
+        for z_bad in bad_zs:
+            z_clipped = z_min if z_bad < z_min else z_max
+            print(f"  Warning: requested z={z_bad:.3f} is outside the DR1 fitted range "
+                  f"[{z_min}, {z_max}]. Defaulting to nearest edge bin z={z_clipped:.3f}.")
+
+    p1d_dr1_fit = np.empty((zlist.size, k_arr.size))
+    for i, z in enumerate(zlist):
+        iz = np.argmin(np.abs(DESI_DR1_Z_BINS - z))
+        if not out_of_range[i] and np.abs(DESI_DR1_Z_BINS[iz] - z) > 0.05:
+            print(
+                f"  Warning: requested z={z:.3f} snapped to nearest DR1 bin z={DESI_DR1_Z_BINS[iz]:.3f}")
+        A, n, alpha, B, beta, k1 = DESI_DR1_PARAMETERS[iz]
+        lmd = 1.0 / k1**2
+        p1d_dr1_fit[i] = evaluatePD13Lorentz(
+            (k_arr, z), A, n, alpha, B, beta, lmd)
+
+    return p1d_dr1_fit
 
 
 def a2_z(zp, nu=2.82, z0=PD13_PIVOT_Z):
@@ -483,7 +550,8 @@ def compute_velocity_properties(k_array):
     return dv, numvpoints
 
 
-def process_power_data(z_target, power_file=None):
+# def process_power_data(z_target, power_file=None):
+def process_power_data(z_target, power_file=None, desi_dr=None):
     """
     Loads or generates power spectrum data and computes velocity grid properties
     for each target redshift.
@@ -547,11 +615,15 @@ def process_power_data(z_target, power_file=None):
         numvpoints_array = np.array(numvpoints_array)
 
     else:
-        print("No (P,k,z) file provided, using default model (PD13Lorentz_DESI_EDR)")
+        if desi_dr == 'DR1':
+            print(
+                "No (P,k,z) file provided, using DESI DR1 model (per-redshift parameters)")
+            P1D_array = PD13Lorentz_DESI_DR1(z_target)
+        else:
+            print("No (P,k,z) file provided, using default model (PD13Lorentz_DESI_EDR)")
+            P1D_array = PD13Lorentz_DESI_EDR(z_target)
         k_array = k_arr
         zlist = z_target
-        P1D_array = PD13Lorentz_DESI_EDR(z_target)
-
         dv_array = np.full(len(zlist), default_dv)
         numvpoints_array = np.full(len(zlist), default_numvpoints)
 
@@ -1131,9 +1203,9 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2,
 
     ax1.plot(z, target_flux, color=CB_color_cycle[0],
              lw=3, alpha=0.5, label=f'Model: {flux_model}')
-    ax1.plot(z, best_fit_flux, color=CB_color_cycle[1], 
-            linestyle=(0, (1, 3)), lw=5, label='Fit')
-    
+    ax1.plot(z, best_fit_flux, color=CB_color_cycle[1],
+             linestyle=(0, (1, 3)), lw=5, label='Fit')
+
     ax1.set_ylabel(r'$\bar F(z)$')
     ax1.legend(loc='lower left')
     ax1.grid()
@@ -1171,7 +1243,7 @@ def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
     print(rf'Saving: {z}_P1D_target.png')
     plt.figure()
 
-    plt.loglog(k_array_input, p1d_input, alpha=0.5, 
+    plt.loglog(k_array_input, p1d_input, alpha=0.5,
                color=CB_color_cycle[0], lw=4,
                label=f'input P1D, z={z}, N={k_array_input.size}')
     plt.loglog(k_array_fine[1:], p1d_fine[1:], color='black', ls='--',
@@ -1203,7 +1275,7 @@ def plot_target_xif(z, new_v_array, xif_interp_fit, v_array_downsampled,
     """
     print(rf'Saving: {z}_xi_F_target.png')
     plt.figure()
-    plt.semilogx(new_v_array[1:], xif_interp_fit[1:], 
+    plt.semilogx(new_v_array[1:], xif_interp_fit[1:],
                  color=CB_color_cycle[0], alpha=0.5, lw=4,
                  label='interpolated, N =' + str(new_v_array.size))
     plt.semilogx(v_array_downsampled, xif_target_downsampled,
@@ -1298,7 +1370,8 @@ def plot_xig_fit(z, v_array_downsampled, xi_g_optimized,
              'o', label=r'$\xi_g$ Fit',
              color=CB_color_cycle[0])
 
-    plt.plot(0, zero_point, 'o', color='black', label=f'Fixed Point (0, {zero_point:.3f})')
+    plt.plot(0, zero_point, 'o', color='black',
+             label=f'Fixed Point (0, {zero_point:.3f})')
 
     plt.plot(v_extrapolated, xi_g_extrapolated, '-',
              label='CS Extrapolation', color=CB_color_cycle[1])
@@ -1346,7 +1419,8 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
     plt.semilogx(v_extrapolated, xi_f_optimized_extrapolated,
                  label=r"$\xi_F$ Fit, N = "+str(v_extrapolated.size),
                  color=CB_color_cycle[1], ls='--')
-    plt.axvline(x=dv, color=CB_color_cycle[6], linestyle='--', label=f"dv: {dv:.2f}")
+    plt.axvline(x=dv, color=CB_color_cycle[6],
+                linestyle='--', label=f"dv: {dv:.2f}")
     plt.xlabel('v [km/s]')
     plt.ylabel(r'$\xi_F$')
     plt.legend()
@@ -1356,7 +1430,7 @@ def plot_xi_f_recovered(z, v_fine, xif_fine,
 
 def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
                          mirrored_fit_power, w_fit_k, e_p1d, z_id, delta_P_real,
-                         z_target):
+                         z_target, desi_dr=None):
     """
     Plot the recovered 1D power spectrum along with percent difference residuals.
 
@@ -1394,19 +1468,19 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     percent_diff2 = 100 * \
         (naim_2020_fit - p1d_input[w_k].real) / p1d_input[w_k].real
 
-    # fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(9, 8), sharex=True,
-    #                                     gridspec_kw={'height_ratios': [4, 1, 1]})
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 8), sharex=True,
                                    gridspec_kw={'height_ratios': [4, 1]})
 
     # Top subplot: Power spectrum
-    # ax1.axvspan(0.05, 0.1, alpha=0.2, color=CB_color_cycle[6])
     ax1.loglog(k_array_input[w_k], naim_2020_fit, lw=2, ls=(0, (10, 4)),
                color='black', label='Karacayli et al. (2020)')
+
+    data_label = f'DESI {desi_dr}' if desi_dr else 'DESI EDR'
     ax1.loglog(k_array_input[w_k], p1d_input[w_k].real, lw=3,
-               color=CB_color_cycle[0], label='DESI EDR', alpha=0.5)
+               color=CB_color_cycle[0], label=data_label, alpha=0.5)
+
     ax1.loglog(mirrored_fit_k_arr[w_fit_k], mirrored_fit_power[w_fit_k].real,
-               color=CB_color_cycle[1], linestyle=(0, (1, 3)), 
+               color=CB_color_cycle[1], linestyle=(0, (1, 3)),
                lw=5, label=r'This Work')
 
     ymin_data = mirrored_fit_power[w_fit_k].real.min()
@@ -1429,37 +1503,17 @@ def plot_recovered_power(z, k_array_input, p1d_input, w_k, mirrored_fit_k_arr,
     ax2.axhline(0, color=CB_color_cycle[6], linestyle='--', linewidth=1)
     ax2.grid(True)
     ax2.set_ylabel("% Difference")
-    ax2.set_ylim(-1,1)
-
-
-    # ax3.semilogx(k_array_input[w_k], percent_diff2, color='black')
-    # ax3.axhline(0, color=CB_color_cycle[6], linestyle='--', linewidth=1)
-    # ax3.grid(True)
+    ax2.set_ylim(-1, 1)
 
     # Compute dynamic y-axis range only for values within x_min and x_max
     x_min, x_max = k_array_input[w_k].min(), k_array_input[w_k].max()
     mask = (k_array_input >= x_min) & (k_array_input <= 0.05)
     percent_diff_in_range = percent_diff[mask]
 
-    # # Compute max abs percent difference in the plotting range
-    # if np.any(~np.isnan(percent_diff_in_range)):
-    #     y_max = np.nanmax(np.abs(percent_diff_in_range))
-    #     buffer = 0.05 * y_max  # Add some padding
-    #     ax2.set_ylim(-y_max - buffer, y_max + buffer)
-    # else:
-    #     ax2.set_ylim(-5, 150)  # Fallback in case of NaNs
-
-    # ax3.set_xlabel(r'k $[km/s]^{-1}$')
     ax2.set_xlabel(r'k $[km/s]^{-1}$')
-
-    # fig.text(0.04, 0.25, "% Difference", va='center',
-    #          rotation='vertical', fontsize=16)
-    # ax3.set_ylabel("")  # remove individual y-labels to avoid overlap
-    # ax2.set_ylabel("")  # remove individual y-labels to avoid overlap
 
     ax1.set_xlim(x_min, x_max)
     ax2.set_xlim(x_min, x_max)
-    # ax3.set_xlim(x_min, x_max)
 
     # Clean x ticks on top plot
     plt.setp(ax1.get_xticklabels(), visible=False)
@@ -1476,6 +1530,8 @@ def main():
         description="Solve for optimal Gaussian correlation function, given redshift (required), P(k,z) (optional), and F(z) (optional)")
     parser.add_argument('--power_file', type=str,
                         help='Path to input (P,k) file (.txt) containing k and P1D arrays')
+    parser.add_argument('--DESI_DR', type=str,
+                        help='Specify which DESI data release (DR) to match. Optional, if not specified, and no power file provided, defaults to DESI EDR model.')
     parser.add_argument('--flux_file', type=str,
                         help='Path to input (F,z) file (.txt) containing z and mean flux arrays')
     parser.add_argument('--z_target', type=str, required=True,
@@ -1510,7 +1566,7 @@ def main():
 
     # Read optional power spectrum input data (k, P1D, velocity spacing arrays)
     k_array, P1D_array, dv_array, numvpoints_array = process_power_data(
-        z_target, args.power_file)
+        z_target, args.power_file, desi_dr=args.DESI_DR)
 
     # Read optional mean flux data (z, flux, model name)
     flux_z_array, flux_array, flux_model = process_flux_data(args.flux_file)
@@ -1551,7 +1607,7 @@ def main():
 
         # Downsample xi_F for fitting (logarithmic spacing)
         downsample_size = 2**10   # higher resolution
-        # downsample_size = 2**5   # lower resolution, for testing
+        # downsample_size = 2**6   # lower resolution, for testing
         v_array_downsampled, xif_target_downsampled, dv_downsampled = downsample_array(
             new_v_array, xif_interp_fit, downsample_size, log_scale=True)
 
@@ -1640,7 +1696,8 @@ def main():
         if args.plot_recovered_power:
             plot_recovered_power(safe_z, k_array_input, p1d_input, wk_display,
                                  fit_k_arr, fit_power, wk_fit_display, e_p1d,
-                                 redshift_index, delta_P_real, z)
+                                 redshift_index, delta_P_real, z,
+                                 desi_dr=args.DESI_DR)
 
 
 if __name__ == "__main__":

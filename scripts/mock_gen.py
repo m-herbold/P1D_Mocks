@@ -7,13 +7,14 @@ from matplotlib.ticker import FuncFormatter
 import pandas as pd
 import argparse
 import random
+import fitsio
 import time
 import os
 
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.stats import binned_statistic
 from scipy.optimize import curve_fit
-from datetime import datetime
+from datetime import datetime, UTC
 from scipy import integrate
 from pathlib import Path
 from astropy.io import fits
@@ -39,6 +40,34 @@ CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
 
 #######################################
 
+DESI_DR1_Z_BINS = np.array([2.2, 2.4, 2.6, 2.8, 3. , 3.2, 
+                            3.4, 3.6, 3.8, 4. , 4.2, 4.4])
+DESI_DR1_PARAMETERS = np.array([
+    [ 0.03507515, -2.29907081, -0.1060376 ,  0.05361727,  0.94526747,
+      0.03229189],
+    [ 0.04041798, -2.39518864, -0.12991116,  0.04184561,  1.12554348,
+      0.04526668],
+    [ 0.049181  , -2.42528694, -0.11157934,  0.04283638,  1.25207902,
+      0.04497229],
+    [ 0.05781328, -2.48643834, -0.11043877,  0.03354593,  1.38387382,
+      0.04514387],
+    [ 0.06906784, -2.56540624, -0.1075445 ,  1.2019191 ,  1.38387382,
+      0.04829095],
+    [ 0.07819796, -2.61014011, -0.10039919,  1.22587228,  1.16848522,
+      0.04638555],
+    [ 0.08781101, -2.66682834, -0.10721731,  1.21903718,  1.00543157,
+      0.0543352 ],
+    [ 0.0997971 , -2.68677992, -0.09074766,  1.21881293,  1.01031311,
+      0.05509684],
+    [ 0.11608582, -2.72069483, -0.09155787,  1.22171626,  0.92684527,
+      0.04873036],
+    [ 0.12680056, -2.75032429, -0.07029002,  1.23364381,  0.88467138,
+      0.05397896],
+    [ 0.15066845, -2.8148221 , -0.13171379,  1.24436379,  0.80802237,
+      0.08497034],
+    [ 0.16266183, -2.825738  , -0.06927853,  1.25187911,  0.76848479,
+      0.0778705 ]
+    ])
 
 DESI_EDR_PARAMETERS = (
     7.63089e-02, -2.52054e+00, -1.27968e-01,
@@ -186,7 +215,6 @@ def process_power_file(safe_z, user_path=None):
         else:
             base_dir = os.path.dirname(__file__)
             p1d_dir = os.path.join(base_dir, '..', 'P_G')
-            # power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
             power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
 
         if not power_path.exists():
@@ -543,7 +571,7 @@ def export_transmission(z_safe, v_array, f_array, output_dir=None):
     os.makedirs(trans_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -565,7 +593,7 @@ def export_transmission(z_safe, v_array, f_array, output_dir=None):
     # Primary HDU with useful metadata
     primary = fits.PrimaryHDU()
     hdr = primary.header
-    hdr['CREATED'] = (datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    hdr['CREATED'] = (datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                       'UTC creation time')
     hdr['ZSAFE'] = (z_safe, 'Redshift label used in filename')
     hdr['LAM0'] = (lambda_0, 'Lya rest wavelength [Angstrom]')
@@ -646,6 +674,35 @@ def evaluatePD13Lorentz(X, A, n, alpha, B, beta, lmd):
         x0 = (1. + z) / (1. + PD13_PIVOT_Z)
         result *= np.power(q0, beta * np.log(x0)) * np.power(x0, B)
     return result
+
+
+def get_desi_params(z, desi_dr=None):
+    """
+    Returns PD13 parameters for a given redshift and data release.
+    For DR1, performs nearest-z lookup with edge clamping and warnings.
+    For EDR (default), returns the universal parameter set.
+
+    Args:
+        z (float): Target redshift.
+        desi_dr (str or None): 'DR1' or None/anything else for EDR.
+
+    Returns:
+        tuple: (A, n, alpha, B, beta, lmd) ready to unpack into evaluatePD13Lorentz.
+    """
+    if desi_dr == 'DR1':
+        z_min, z_max = DESI_DR1_Z_BINS.min(), DESI_DR1_Z_BINS.max()
+        iz = np.argmin(np.abs(DESI_DR1_Z_BINS - z))
+        z_nearest = DESI_DR1_Z_BINS[iz]
+        if z < z_min or z > z_max:
+            print(f"  Warning: requested z={z:.3f} is outside the DR1 fitted range "
+                  f"[{z_min}, {z_max}]. Defaulting to nearest edge bin z={z_nearest:.3f}.")
+        elif np.abs(z_nearest - z) > 0.05:
+            print(f"  Warning: requested z={z:.3f} snapped to nearest DR1 bin z={z_nearest:.3f}.")
+        A, n, alpha, B, beta, k1 = DESI_DR1_PARAMETERS[iz]
+        lmd = 1.0 / k1**2
+        return (A, n, alpha, B, beta, lmd)
+    else:
+        return DESI_EDR_PARAMETERS
 
 
 def fit_PD13Lorentz(delta_f, dv, z):
@@ -729,6 +786,7 @@ def process_EDR_DATA(z_target):
 
     # Read the file, using '|' as a separator and stripping whitespace
     df = pd.read_csv(edr_data_path, sep='|', skiprows=1)
+    
     # Drop extra empty columns from leading/trailing pipes
     df = df.drop(columns=df.columns[[0, -1]])
     df.columns = ['kc', 'z', 'kPpi', 'kepi']   # Rename columns
@@ -739,8 +797,53 @@ def process_EDR_DATA(z_target):
     # Recover P(k) and its uncertainty
     subset['Pk'] = np.pi * subset['kPpi'] / subset['kc']
     subset['Pk_err'] = np.pi * subset['kepi'] / subset['kc']
-
+    
     return subset['kc'], subset['Pk'], subset['Pk_err']
+
+
+def process_DR1_DATA(z_target):
+    """
+    Loads and processes DR1 QMLE power spectrum data for a given redshift,
+    reading directly from the DR1 FITS file.
+
+    Args:
+        z_target (float): Target redshift to filter from the DR1 data.
+
+    Returns:
+        tuple:
+            - kc (np.ndarray): Center of k-bins [s/km].
+            - Pk (np.ndarray): Recovered power spectrum P(k).
+            - Pk_err (np.ndarray): Associated uncertainties.
+
+    Raises:
+        FileNotFoundError: If the DR1 data file is missing.
+    """
+    current_path = Path(__file__).resolve().parent
+    dr1_path = current_path.parent / 'Examples' / \
+        'desi_y1_baseline_p1d_sb1subt_qmle_power_estimate_contcorr_v2.fits'
+
+    if not os.path.exists(dr1_path):
+        raise FileNotFoundError(f"DR1 data file not found: {dr1_path}")
+
+    z_vals = fitsio.read(dr1_path, ext=1, columns=['Z'])['Z']
+    k_vals = fitsio.read(dr1_path, ext=1, columns=['K'])['K']
+    p_vals = fitsio.read(dr1_path, ext=1, columns=['PLYA'])['PLYA']
+    p_err  = fitsio.read(dr1_path, ext=1, columns=['E_PK'])['E_PK']
+
+    # Find nearest redshift bin
+    z_bins = np.unique(z_vals)
+    iz = np.argmin(np.abs(z_bins - z_target))
+    z_nearest = z_bins[iz]
+    mask = (z_vals == z_nearest)
+
+    k_slice = k_vals[mask]
+    # p_vals is plya (P1D), p_err is e_pk — recover P(k) from kP(k)/pi scaling
+    p_scaled     = (k_slice * p_vals[mask]) / np.pi
+    p_err_scaled = (k_slice * p_err[mask])  / np.pi
+    Pk     = np.pi * p_scaled     / k_slice   # = p_vals[mask]
+    Pk_err = np.pi * p_err_scaled / k_slice   # = p_err[mask]
+
+    return k_slice, Pk, Pk_err
 
 
 def get_k_range_desi2025(z):
@@ -812,7 +915,7 @@ def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir=None):
     os.makedirs(fits_dir, exist_ok=True)
 
     # Unique ID (timestamp + random suffix)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
     filename = f"{safe_z}_P1D_{unique_id}.fits"
@@ -828,7 +931,7 @@ def export_power_spectrum_fits(safe_z, k_array, p1d_array, output_dir=None):
     # Primary HDU metadata
     primary = fits.PrimaryHDU()
     hdr = primary.header
-    hdr['CREATED'] = (datetime.utcnow().strftime(
+    hdr['CREATED'] = (datetime.now(UTC).strftime(
         "%Y-%m-%dT%H:%M:%SZ"), 'UTC creation time')
     hdr['ZSAFE'] = (safe_z, 'Redshift label used in filename')
     hdr['AUTHOR'] = ('fit_and_plot_power', 'Generator function')
@@ -868,7 +971,7 @@ def export_power_stats_fits(safe_z, stats_dict, output_dir=None):
     fits_dir = os.path.join(base_dir, 'stats', safe_z)
     os.makedirs(fits_dir, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
     filename = f"{safe_z}_P1D_stats_{unique_id}.fits"
@@ -883,7 +986,7 @@ def export_power_stats_fits(safe_z, stats_dict, output_dir=None):
 
     primary = fits.PrimaryHDU()
     hdr = primary.header
-    hdr['CREATED'] = (datetime.utcnow().strftime(
+    hdr['CREATED'] = (datetime.now(UTC).strftime(
         "%Y-%m-%dT%H:%M:%SZ"), 'UTC creation time')
     hdr['ZSAFE'] = (safe_z, 'Redshift label used in filename')
 
@@ -894,7 +997,7 @@ def export_power_stats_fits(safe_z, stats_dict, output_dir=None):
 def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None,
                        N_mocks=None, z_target=None, k_arrays=None,
                        power_arrays=None, delta_f_array=None,
-                       all_z='n', plot='y', output_dir=None):
+                       all_z='n', plot='y', output_dir=None, desi_dr=None):
     """
     Fit the PD13 Lorentzian model to the 1D flux power spectrum and optionally
     plot it.
@@ -978,8 +1081,9 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
-            desi_model = evaluatePD13Lorentz(
-                (bin_centers, z), *DESI_EDR_PARAMETERS)
+            
+            desi_model = evaluatePD13Lorentz((bin_centers, z),
+                                             *get_desi_params(z, desi_dr))
 
             percent_diff_mock_measure = 100 * (stat - desi_model) / desi_model
             percent_diff_mock_fit = 100 * (mock_fit - desi_model) / desi_model
@@ -1013,7 +1117,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         os.makedirs(plot_dir, exist_ok=True)
 
         # Generate unique ID (timestamp + random digits)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         rand_suffix = f"{random.randint(0, 9999):04d}"
         unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1034,18 +1138,25 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         delta_f = delta_f
 
         bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
+        
         # generic extended k-mask
         # w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
         # generic condensed mask
         w_k = (bin_centers > 1e-4) & (bin_centers < 0.05)
 
-        edr_k, edr_p, edr_err = process_EDR_DATA(z)
-
+        # edr_k, edr_p, edr_err = process_EDR_DATA(z)
+        if desi_dr == 'DR1':
+            edr_k, edr_p, edr_err = process_DR1_DATA(z)
+        else:
+            edr_k, edr_p, edr_err = process_EDR_DATA(z)
+            
         if plot == 'y':
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
-            desi_model = evaluatePD13Lorentz(
-                (bin_centers, z), *DESI_EDR_PARAMETERS)
+
+            desi_model = evaluatePD13Lorentz((bin_centers, z),
+                                             *get_desi_params(z, desi_dr))
+            
             naim_2020_fit = evaluatePD13Lorentz(
                 (bin_centers, z), *karacayli_etal_2020_param)
 
@@ -1062,15 +1173,18 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             ax1.loglog(bin_centers[w_k], stat[w_k], color='tab:orange',
                        alpha=0.5, label=f'This Work (N = {N_mocks})')
+            
+            desi_label = f'DESI {desi_dr}' if desi_dr else 'DESI EDR'
             ax1.loglog(bin_centers[w_k], desi_model[w_k], ls='--',
-                       color='tab:blue', label=r'DESI EDR Fit (PD13)')
-            ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o', label='DESI EDR',
-                         color='tab:blue')
+                       color='tab:blue', label=f'{desi_label} Fit (PD13)')
+            
+            ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o',
+                 label=f'DESI {desi_dr}' if desi_dr else 'DESI EDR',
+                 color='tab:blue')
+            
             ax1.set_ylabel(rf'$P(k)$   (z = {safe_z})')
             ax1.legend(loc='lower left')
             ax1.grid(True)
-            # ax1.yaxis.set_major_formatter(ScalarFormatter())
-            # ax1.ticklabel_format(style='plain', axis='y')
             ax1.yaxis.set_major_formatter(
                 FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
             )
@@ -1083,6 +1197,20 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             ax2.set_ylabel('% Difference')
             ax2.set_xlabel(r'k $[km/s]^{-1}$')
 
+            # --- DR1 k-range shading ---
+            if desi_dr == 'DR1':
+                k_min_dr1 = 1e-3
+                k_max_dr1 = 0.5 * np.pi / (299792.458 * 0.8 / ((1 + z) * 1216.0))
+                # shade regions outside the DR1 valid k-range
+                ax1.axvspan(bin_centers[w_k].min(), k_min_dr1,
+                            color='gray', alpha=0.3)
+                ax1.axvspan(k_max_dr1, bin_centers[w_k].max(),
+                            color='gray', alpha=0.3)
+                ax2.axvspan(bin_centers[w_k].min(), k_min_dr1,
+                            color='gray', alpha=0.3)
+                ax2.axvspan(k_max_dr1, bin_centers[w_k].max(),
+                            color='gray', alpha=0.3)
+            
             plt.tight_layout()
 
             # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
@@ -1097,7 +1225,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                                                   0.1)  # for robustness
             wk_custom = (bin_centers > 1e-5) & (bin_centers <
                                                 0.05)  # for display
-
             fig.text(
                 0.01, -0.02,
                 f"""
@@ -1155,7 +1282,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             os.makedirs(plot_dir, exist_ok=True)
 
             # Generate unique ID (timestamp + random digits)
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             rand_suffix = f"{random.randint(0, 9999):04d}"
             unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1265,7 +1392,7 @@ def plot_gaussian_field(z, field, space='v', sliced='y', output_dir=None):
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1306,7 +1433,7 @@ def plot_gaussian_power(z, kmodes, field, output_dir=None):
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1388,7 +1515,7 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1432,7 +1559,7 @@ def plot_nz(z, field, sliced='y', output_dir=None):
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1476,7 +1603,7 @@ def plot_optical_depth(z, field, sliced='y', output_dir=None):
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1570,7 +1697,7 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"{timestamp}_{rand_suffix}"
 
@@ -1648,7 +1775,7 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
     os.makedirs(plot_dir, exist_ok=True)
 
     # Generate unique ID (timestamp + random digits)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"_{timestamp}_{rand_suffix}"
 
@@ -1706,6 +1833,8 @@ def main():
                         help='Optional comma-separated values (tau0,tau1,nu,sigma2) or a file with these values. If omitted, uses defaults.')
     parser.add_argument('--output_dir', type=str, default='.',
                         help='Directory where all output files and plots will be saved (default: current directory).')
+    parser.add_argument('--DESI_DR', type=str,
+                        help='Specify which DESI data release (DR) to match. Optional, if not specified, and no power file provided, defaults to DESI EDR model.')
 
     parser.add_argument('--plot_gaussian_field', action='store_true',
                         help='Generate and save a figure of initial Gaussian random grid (default: False)')
@@ -1820,7 +1949,8 @@ def main():
         bin_centers, statistic, popt = fit_and_plot_power(
             delta_f=delta_f_per_z, z=z, dv=dv, safe_z=safe_z,
             N_mocks=args.N_mocks, z_target=z_target,
-            all_z='n', plot='y', output_dir=args.output_dir)
+            all_z='n', plot='y', output_dir=args.output_dir,
+            desi_dr=args.DESI_DR)
 
         if redshift_index == 0:
             len_k_bins = len(statistic)
@@ -1894,9 +2024,8 @@ def main():
     fit_and_plot_power(z_target=z_target, k_arrays=k_arrays,
                        power_arrays=power_per_z_array,
                        delta_f_array=delta_f_per_z_array,
-                       dv_array=dv_per_z_array, all_z='y',
-                       output_dir=args.output_dir)
-
+                       dv_array=dv_per_z_array, all_z='y', plot='y',
+                       output_dir=args.output_dir, desi_dr=args.DESI_DR)
 
 if __name__ == "__main__":
     main()

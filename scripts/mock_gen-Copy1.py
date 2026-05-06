@@ -216,7 +216,6 @@ def process_power_file(safe_z, user_path=None):
             base_dir = os.path.dirname(__file__)
             p1d_dir = os.path.join(base_dir, '..', 'P_G')
             power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}-test.txt'))
-            # power_path = Path(os.path.join(p1d_dir, f'P_G-{safe_z}.txt'))
 
         if not power_path.exists():
             raise FileNotFoundError(f"Could not find file: {power_path}")
@@ -787,6 +786,7 @@ def process_EDR_DATA(z_target):
 
     # Read the file, using '|' as a separator and stripping whitespace
     df = pd.read_csv(edr_data_path, sep='|', skiprows=1)
+    
     # Drop extra empty columns from leading/trailing pipes
     df = df.drop(columns=df.columns[[0, -1]])
     df.columns = ['kc', 'z', 'kPpi', 'kepi']   # Rename columns
@@ -1081,8 +1081,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
-            # desi_model = evaluatePD13Lorentz(
-                # (bin_centers, z), *DESI_EDR_PARAMETERS)
+            
             desi_model = evaluatePD13Lorentz((bin_centers, z),
                                              *get_desi_params(z, desi_dr))
 
@@ -1139,6 +1138,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         delta_f = delta_f
 
         bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
+        
         # generic extended k-mask
         # w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
         # generic condensed mask
@@ -1153,10 +1153,10 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         if plot == 'y':
             # Evaluate fits and models
             mock_fit = evaluatePD13Lorentz((bin_centers, z), *popt)
-            # desi_model = evaluatePD13Lorentz(
-                # (bin_centers, z), *DESI_EDR_PARAMETERS)
+
             desi_model = evaluatePD13Lorentz((bin_centers, z),
                                              *get_desi_params(z, desi_dr))
+            
             naim_2020_fit = evaluatePD13Lorentz(
                 (bin_centers, z), *karacayli_etal_2020_param)
 
@@ -1173,20 +1173,18 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
             ax1.loglog(bin_centers[w_k], stat[w_k], color='tab:orange',
                        alpha=0.5, label=f'This Work (N = {N_mocks})')
+            
             desi_label = f'DESI {desi_dr}' if desi_dr else 'DESI EDR'
             ax1.loglog(bin_centers[w_k], desi_model[w_k], ls='--',
-                       # color='tab:blue', label=r'DESI EDR Fit (PD13)')
                        color='tab:blue', label=f'{desi_label} Fit (PD13)')
-            # ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o', label='DESI EDR',
-            #              color='tab:blue')
+            
             ax1.errorbar(edr_k, edr_p, yerr=edr_err, fmt='o',
                  label=f'DESI {desi_dr}' if desi_dr else 'DESI EDR',
                  color='tab:blue')
+            
             ax1.set_ylabel(rf'$P(k)$   (z = {safe_z})')
             ax1.legend(loc='lower left')
             ax1.grid(True)
-            # ax1.yaxis.set_major_formatter(ScalarFormatter())
-            # ax1.ticklabel_format(style='plain', axis='y')
             ax1.yaxis.set_major_formatter(
                 FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
             )
@@ -1227,7 +1225,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
                                                   0.1)  # for robustness
             wk_custom = (bin_centers > 1e-5) & (bin_centers <
                                                 0.05)  # for display
-
             fig.text(
                 0.01, -0.02,
                 f"""
