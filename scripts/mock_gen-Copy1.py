@@ -14,6 +14,7 @@ import os
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.stats import binned_statistic
 from scipy.optimize import curve_fit
+from scipy import integrate
 from datetime import datetime, UTC
 from scipy import integrate
 from pathlib import Path
@@ -1060,7 +1061,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
     """
 
     # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)    
 
     if all_z == 'y' and plot == 'y':
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6),
@@ -1108,6 +1109,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         ax2.axhline(0, color=CB_color_cycle[6], lw=1, ls='--')
         ax2.set_ylabel(r"% Difference")
         ax2.set_xlabel(r'k $[km/s]^{-1}$')
+        # ax2.legend(fontsize='small', loc='upper left')
         ax2.grid(True, ls=':', alpha=0.6)
 
         # Save to output directory
@@ -1121,7 +1123,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
         rand_suffix = f"{random.randint(0, 9999):04d}"
         unique_id = f"{timestamp}_{rand_suffix}"
 
-        filename = f"Power_measured_{unique_id}.png"
+        filename = f"Power_measured_{unique_id}-test.png"
         filepath = os.path.join(plot_dir, filename)
 
         # save figure
@@ -1139,9 +1141,19 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
 
         bin_centers, stat, *popt = fit_PD13Lorentz(delta_f, dv, z)
         
-        # generic extended k-mask
-        # w_k = (bin_centers > 1e-5) & (bin_centers < 0.1)
-        # generic condensed mask
+        # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
+        wk_2020 = (bin_centers > 0.0005) & (
+            bin_centers < 0.112)  # DESI Lite
+        dynamic_k_min, dynamic_k_max = get_k_range_desi2025(z)
+        wk_2023 = (bin_centers > 0.000750) & (
+            bin_centers < 0.035)  # EDR
+        wk_2025 = (bin_centers > dynamic_k_min) & (
+            bin_centers < dynamic_k_max)  # DR1
+        wk_extended = (bin_centers > 1e-5) & (
+            bin_centers < 0.1)  # for robustness
+        wk_custom = (bin_centers > 1e-5) & (
+            bin_centers < 0.05)  # for display
+
         w_k = (bin_centers > 1e-4) & (bin_centers < 0.05)
 
         # edr_k, edr_p, edr_err = process_EDR_DATA(z)
@@ -1186,14 +1198,18 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             ax1.legend(loc='lower left')
             ax1.grid(True)
             ax1.yaxis.set_major_formatter(
-                FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}")
-            )
+                FuncFormatter(lambda y, _: f"{int(y)}" if y >= 1 else f"{y:g}"))
 
             ax2.semilogx(bin_centers[w_k], percent_diff_mock_measure[w_k],
                          color='black', alpha=0.7)  # , label='Mock Measure')
+
+            ax2.axhline(percent_diff_mock_measure[w_k].mean(), 
+                ls='--', color='darkorange', 
+                label=f'Mean: {np.abs(percent_diff_mock_measure[w_k].mean()):.2f}%')
+
             ax2.axhline(0, ls='--', color=CB_color_cycle[6])
             ax2.grid(True)
-            # ax2.legend(loc='upper left')
+            ax2.legend(loc='upper left')
             ax2.set_ylabel('% Difference')
             ax2.set_xlabel(r'k $[km/s]^{-1}$')
 
@@ -1213,18 +1229,6 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             
             plt.tight_layout()
 
-            # define k-ranges based on Karacayli et al. 2020 / 2023 / 2025
-            wk_2020 = (bin_centers > 0.0005) & (
-                bin_centers < 0.112)  # DESI Lite
-            dynamic_k_min, dynamic_k_max = get_k_range_desi2025(z)
-            wk_2023 = (bin_centers > 0.000750) & (
-                bin_centers < 0.035)  # EDR
-            wk_2025 = (bin_centers > dynamic_k_min) & (
-                bin_centers < dynamic_k_max)  # DR1
-            wk_extended = (bin_centers > 1e-5) & (bin_centers <
-                                                  0.1)  # for robustness
-            wk_custom = (bin_centers > 1e-5) & (bin_centers <
-                                                0.05)  # for display
             fig.text(
                 0.01, -0.02,
                 f"""
@@ -1286,7 +1290,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             rand_suffix = f"{random.randint(0, 9999):04d}"
             unique_id = f"{timestamp}_{rand_suffix}"
 
-            output_path = f"{safe_z}_power_fit.png_{unique_id}.png"
+            output_path = f"{safe_z}_power_fit{unique_id}-test.png"
             output_path = os.path.join(plot_dir, output_path)
 
             # save figure
@@ -1362,13 +1366,13 @@ def plot_gaussian_field(z, field, space='v', sliced='y', output_dir=None):
     """
     space = space.lower()
     if space == 'v':
-        filename = f'{z}_Gaussian_Field_v.png'
+        filename = f'{z}_Gaussian_Field_v-test.png'
         title = 'Gaussian Random Field, Velocity Space'
         xlabel = 'Points'
         ylabel = 'Velocity [km/s]'
         data = field
     elif space == 'k':
-        filename = f'{z}_Gaussian_Field_k.png'
+        filename = f'{z}_Gaussian_Field_k-test.png'
         title = 'RFFT(1D field), k-space (Real part)'
         xlabel = 'k-modes'
         ylabel = 'Amplitude'
@@ -1418,7 +1422,7 @@ def plot_gaussian_power(z, kmodes, field, output_dir=None):
     Saves:
         {z}__gaussian_power.png: Log-log plot of the Gaussian power spectrum.
     """
-    filename = f'{z}__gaussian_power.png'
+    filename = f'{z}__gaussian_power-test.png'
 
     plt.figure()
     plt.loglog(kmodes, field, label=f'z = {z}', color='tab:orange',  ls='--')
@@ -1475,19 +1479,19 @@ def plot_delta_field(z, kmodes, velocity_grid, field, space='v', sliced='y',
     """
     space = space.lower()
     if space == 'k':
-        filename = f'{z}_delta_field_k.png'
+        filename = f'{z}_delta_field_k-test.png'
         xlabel = r'$k$-modes [$\mathrm{{(km/s)}}^{-1}$]'
         ylabel = r"$\tilde\delta_b(k)$"
         data = np.real(field)
         x_ax = kmodes
     elif space == 'v':
-        filename = f'{z}_delta_field_v.png'
+        filename = f'{z}_delta_field_v-test.png'
         xlabel = 'Velocity [km/s]'
         ylabel = r"$\delta_b(v)$"
         data = field
         x_ax = None  # let matplotlib default to index positions
     elif space == 'z':
-        filename = f'{z}_delta_field_z.png'
+        filename = f'{z}_delta_field_z-test.png'
         xlabel = 'Velocity [km/s]'
         ylabel = rf'$\delta_b(z = {z})$'
         data = field
@@ -1545,7 +1549,7 @@ def plot_nz(z, field, sliced='y', output_dir=None):
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
-    filename = f'{z}_nz_field.png'
+    filename = f'{z}_nz_field-test.png'
 
     plt.figure()
     plt.plot(field)
@@ -1589,7 +1593,7 @@ def plot_optical_depth(z, field, sliced='y', output_dir=None):
     if sliced.lower() == 'y':
         field = field[min_slice:max_slice]
 
-    filename = f'{z}_optical_depth.png'
+    filename = f'{z}_optical_depth-test.png'
 
     plt.figure()
     plt.plot(field)
@@ -1654,14 +1658,14 @@ def plot_transmission(z, safe_z, velocity_grid, field, variance, tau0, tau1,
     """
     space = space.lower()
     if space == 'v':
-        filename = f'{safe_z}_transmission_field_v.png'
+        filename = f'{safe_z}_transmission_field_v-test.png'
         xlabel = 'Velocity [km/s]'
         ylabel = f"F(z = {safe_z})"
         data = field
         x_ax = None
     elif space == 'w':
         wavelength_grid = generate_wavelength_grid(velocity_grid, z)
-        filename = f'{safe_z}_transmission_field_w.png'
+        filename = f'{safe_z}_transmission_field_w-test.png'
         xlabel = 'Wavelength (Å)'
         ylabel = f"F(z = {safe_z})"
         data = field
@@ -1779,7 +1783,7 @@ def plot_mean_flux(z_target, mean_flux_array, model_z, model_flux_array,
     rand_suffix = f"{random.randint(0, 9999):04d}"
     unique_id = f"_{timestamp}_{rand_suffix}"
 
-    filename = f"Mean_Flux_Measured_{unique_id}.png"
+    filename = f"Mean_Flux_Measured_{unique_id}-test.png"
     filename = os.path.join(plot_dir, filename)
 
     # save figure
@@ -1916,10 +1920,12 @@ def main():
 
             delta_b_tilde, delta_b_v, P_k = delta_transform_1d(
                 k_array, power_array, gaussian_random_field_k, dv)
+            
+            delta_b_z = delta_b_v * a_z(z)
 
             variance_1d = sigma2
-            delta_b_z = delta_b_v * a_z(z)
             redshifted_variance_1d = variance_1d * a2_z(z)
+            
             variance_1d_field = delta_b_v.var()
             redshifted_variance_1d_field = variance_1d_field * a2_z(z)
 
@@ -1930,6 +1936,7 @@ def main():
 
             # save value for mean flux for each transmission file at this z
             temp_mean_flux.append(mean_flux(z, variance_1d_field, z0))
+            # temp_mean_flux.append(np.mean(f_z))
 
             delta_f = delta_F(z=z,
                               variance=variance_1d_field,

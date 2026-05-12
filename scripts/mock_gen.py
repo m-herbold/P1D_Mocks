@@ -14,6 +14,7 @@ import os
 from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.stats import binned_statistic
 from scipy.optimize import curve_fit
+from scipy import integrate
 from datetime import datetime, UTC
 from scipy import integrate
 from pathlib import Path
@@ -1286,7 +1287,7 @@ def fit_and_plot_power(delta_f=None, z=None, dv=None, dv_array=None, safe_z=None
             rand_suffix = f"{random.randint(0, 9999):04d}"
             unique_id = f"{timestamp}_{rand_suffix}"
 
-            output_path = f"{safe_z}_power_fit.png_{unique_id}.png"
+            output_path = f"{safe_z}_power_fit{unique_id}.png"
             output_path = os.path.join(plot_dir, output_path)
 
             # save figure

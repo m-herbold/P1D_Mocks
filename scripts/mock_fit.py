@@ -892,10 +892,10 @@ def solve_xi_optimized(z_target, redshift_index, size, v_array_downsampled,
     print(f"Difference:                     {sigma2 - zero_point}")
 
     xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index],
-                                                        xi_g_i, sigma2, tau0,
-                                                        tau1, nu, z0)
+                                                        xi_g_i, tau0, tau1, nu, 
+                                                        sigma2, z0)
                                for xi_g_i in xi_g_full])
-
+    
     return v_fit, xi_g_fit, xi_f_optimized, xi_g_full, zero_point
 
 

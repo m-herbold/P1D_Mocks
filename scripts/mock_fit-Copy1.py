@@ -866,12 +866,20 @@ def solve_xi_optimized(z_target, redshift_index, size, v_array_downsampled,
                                  xi_f_fit, tau0, tau1, nu, sigma2, z0))
     xi_g_fit = result.x
 
-    xi_g_extrapolator = interp1d(
-        v_fit, xi_g_fit,
-        kind='linear',
-        fill_value='extrapolate',
-        bounds_error=False)
+    v_interp = np.concatenate([[0.0], v_fit])
+    xi_interp = np.concatenate([[sigma2], xi_g_fit])
+    
+    # xi_g_extrapolator = interp1d(
+    #     v_fit, xi_g_fit,
+    #     kind='linear',
+    #     fill_value='extrapolate',
+    #     bounds_error=False)
 
+    xi_g_extrapolator = interp1d(
+        v_interp, xi_interp, kind='cubic', 
+        fill_value='extrapolate', 
+        bounds_error=False)
+    
     xi_g_full = xi_g_extrapolator(v_array_downsampled)
 
     zero_point = xi_g_full[0]
@@ -892,10 +900,10 @@ def solve_xi_optimized(z_target, redshift_index, size, v_array_downsampled,
     print(f"Difference:                     {sigma2 - zero_point}")
 
     xi_f_optimized = np.array([lognXiFfromXiG_pointwise(z_target[redshift_index],
-                                                        xi_g_i, sigma2, tau0,
-                                                        tau1, nu, z0)
+                                                        xi_g_i, tau0, tau1, nu, 
+                                                        sigma2, z0)
                                for xi_g_i in xi_g_full])
-
+    
     return v_fit, xi_g_fit, xi_f_optimized, xi_g_full, zero_point
 
 
@@ -1188,7 +1196,7 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2,
     Saves:
         'Mean_Flux_Fit.png' — plot of the best-fit mean flux and its residuals.
     """
-    print('Saving: Mean_Flux_Fit.png')
+    print('Saving: Mean_Flux_Fit-test.png')
 
     # Compute best-fit mean flux
     best_fit_flux = lognMeanFluxGH(z, tau0, tau1, nu, sigma2, z0)
@@ -1223,7 +1231,7 @@ def plot_mean_flux(z, target_flux, tau0, tau1, nu, sigma2,
     ax2.grid()
 
     # Save figure
-    plt.savefig('Mean_Flux_Fit-test-test.png')
+    plt.savefig('Mean_Flux_Fit-test.png')
 
 
 def plot_target_power(z, k_array_input, p1d_input, k_array_fine, p1d_fine):
