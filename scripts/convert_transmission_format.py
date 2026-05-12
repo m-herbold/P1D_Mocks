@@ -574,7 +574,7 @@ def save_downsampled_mock(
     #                  -> /path/to/transmission-16-0_2_sampled.fits
     input_path = Path(mock_catalog_path)
 
-    file_name = f"/transmission_{nside}_{pixel}_{ext}.fits"
+    file_name = f"/transmission-{nside}-{pixel}_{ext}.fits"
     output_path = outdir+file_name
 
     # Indices of selected rows in the original METADATA extension
